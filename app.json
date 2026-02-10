@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "smieci test",
+    "name": "Harmonogram Śmieci",
     "slug": "trash-reminder",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -10,21 +10,31 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0b1220"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.trashreminder",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "splash": {
+        "image": "./assets/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0b1220"
       }
     },
     "android": {
+      "splash": {
+        "image": "./assets/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0b1220"
+      },
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
+      "edgeToEdgeEnabled": false,
       "package": "com.anonymous.trashreminder"
     },
     "web": {
