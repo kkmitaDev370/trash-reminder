@@ -1,19 +1,22 @@
 {
   "name": "trash-reminder",
-  "version": "1.0.0",
+  "version": "1.0.6",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "version:bump": "node scripts/bump-build-version.mjs",
     "android": "expo run:android",
     "android:release": "cd android && gradlew assembleRelease",
     "android:release:arm64": "cd android && gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a",
     "android:aab": "cd android && gradlew bundleRelease",
-    "eas:build:light": "eas build --platform android --profile previewLight",
-    "eas:update:dev": "eas update --branch dev --message \"Dev update\"",
+    "eas:build:light": "npm run version:bump && eas build --platform android --profile previewLight",
+    "eas:build:light:nowait": "npm run version:bump && eas build --platform android --profile previewLight --no-wait",
+    "eas:update:dev": "npm run version:bump && eas update --branch dev --message \"Dev update\"",
     "ios": "expo run:ios",
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
     "expo": "~54.0.33",
     "expo-notifications": "~0.32.16",
     "expo-status-bar": "~3.0.9",

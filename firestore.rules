@@ -17,17 +17,14 @@ service cloud.firestore {
 
     // Profil użytkownika i przypisane gospodarstwo
     match /users/{userId} {
-      allow read: if isSelf(userId);
-      allow create: if isSelf(userId);
-      allow update: if isSelf(userId)
-        && request.resource.data.householdId == resource.data.householdId;
+      allow read, create, update: if isSelf(userId);
       allow delete: if false;
     }
 
     // Gospodarstwa
     match /households/{householdId} {
-      // Odczyt tylko dla członków
-      allow read: if isHouseholdMember(householdId);
+      // Odczyt dla zalogowanych (potrzebne do wyszukiwania po secretCode przy dołączaniu)
+      allow read: if isSignedIn();
 
       // Tworzenie nowego gospodarstwa przez zalogowanego użytkownika,
       // który dodaje siebie do members

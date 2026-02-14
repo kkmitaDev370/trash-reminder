@@ -1,16 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   addDoc,
@@ -29,6 +31,9 @@ import {
   where,
 } from 'firebase/firestore';
 import * as Notifications from 'expo-notifications';
+import * as Application from 'expo-application';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { Calendar } from 'react-native-calendars';
 import { auth, db, isFirebaseConfigured, loginUser, registerUser } from './firebase';
 
@@ -61,25 +66,98 @@ const normalizeCode = (value: string) => value.trim().toUpperCase();
 const createSecretCode = () =>
   Math.random().toString(36).slice(2, 8).toUpperCase();
 
+const isValidTimeHHmm = (value: string) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+
+const POPULAR_WASTE_TYPES = [
+  'Zmieszane',
+  'Plastik i metal',
+  'Papier',
+  'Szkło',
+  'Bio',
+  'Gabaryty',
+  'Elektroodpady',
+  'Inne',
+];
+
+const MIXED_WASTE_DAY_COLOR = '#7c3aed';
+const SESSION_CREDENTIALS_KEY = 'trash_reminder_session_credentials_v1';
+const SESSION_TOKEN_KEY = 'trash_reminder_session_token_v1';
+
+const getWasteTypeColor = (wasteType: string) => {
+  const normalized = wasteType.trim().toLowerCase();
+
+  if (normalized.includes('zmiesz')) return '#475569';
+  if (normalized.includes('plastik') || normalized.includes('metal')) return '#f59e0b';
+  if (normalized.includes('papier')) return '#3b82f6';
+  if (normalized.includes('szk')) return '#14b8a6';
+  if (normalized.includes('bio')) return '#16a34a';
+  if (normalized.includes('gabary')) return '#a855f7';
+  if (normalized.includes('elektro')) return '#ef4444';
+
+  return '#6366f1';
+};
+
 export default function App() {
+  const isSigningOutRef = useRef(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [householdInviteCode, setHouseholdInviteCode] = useState('');
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userUid, setUserUid] = useState<string | null>(null);
+  const [notificationTime, setNotificationTime] = useState('19:00');
+  const [notificationTimeInput, setNotificationTimeInput] = useState('19:00');
+  const [isSavingNotificationTime, setIsSavingNotificationTime] = useState(false);
+  const [isSendingTestNotification, setIsSendingTestNotification] = useState(false);
 
   const [currentHouseholdId, setCurrentHouseholdId] = useState<string | null>(null);
   const [householdSecretCode, setHouseholdSecretCode] = useState<string>('');
 
   const [eventDate, setEventDate] = useState('');
-  const [wasteType, setWasteType] = useState('Zmieszane');
+  const [selectedWasteType, setSelectedWasteType] = useState('Zmieszane');
+  const [customWasteType, setCustomWasteType] = useState('');
+  const [isWasteTypeDropdownOpen, setIsWasteTypeDropdownOpen] = useState(false);
   const [showWasteModal, setShowWasteModal] = useState(false);
   const [modalError, setModalError] = useState('');
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [showMenuModal, setShowMenuModal] = useState(false);
   const [events, setEvents] = useState<TrashEvent[]>([]);
   const [isEventsLoading, setIsEventsLoading] = useState(false);
+  const [isSessionBootstrapping, setIsSessionBootstrapping] = useState(Platform.OS !== 'web');
+  const [autoLoginStatus, setAutoLoginStatus] = useState('idle');
+  const [autoLoginError, setAutoLoginError] = useState('');
+  const [sessionDebugInfo, setSessionDebugInfo] = useState<{
+    tokenPreview: string;
+    hasCredentials: boolean;
+    savedEmail: string;
+    hasPassword: boolean;
+    firebaseUid: string;
+    firebaseEmail: string;
+    autoLoginStatus: string;
+    autoLoginError: string;
+  }>({
+    tokenPreview: '—',
+    hasCredentials: false,
+    savedEmail: '—',
+    hasPassword: false,
+    firebaseUid: '—',
+    firebaseEmail: '—',
+    autoLoginStatus: 'idle',
+    autoLoginError: '—',
+  });
+  const [isSessionDebugLoading, setIsSessionDebugLoading] = useState(false);
+  const isAuthenticated = Boolean(userUid);
+  const appVersionLabel = (() => {
+    const nativeVersion = Application.nativeApplicationVersion ?? 'dev';
+    const nativeBuild = Application.nativeBuildVersion ?? 'dev';
+    const otaVersion = Constants.expoConfig?.version;
+
+    if (otaVersion && otaVersion !== nativeVersion) {
+      return `v${otaVersion} • apk ${nativeVersion} (${nativeBuild})`;
+    }
+
+    return `v${nativeVersion} (${nativeBuild})`;
+  })();
 
   const markedDates = useMemo(() => {
     const marks: Record<
@@ -87,16 +165,22 @@ export default function App() {
       {
         selected?: boolean;
         selectedColor?: string;
-        marked?: boolean;
-        dotColor?: string;
+        selectedTextColor?: string;
       }
     > = {};
 
     for (const item of events) {
+      const eventColor = getWasteTypeColor(item.wasteType);
+      const existingColor = marks[item.date]?.selectedColor;
+
       marks[item.date] = {
         ...(marks[item.date] ?? {}),
-        marked: true,
-        dotColor: '#38bdf8',
+        selected: true,
+        selectedColor:
+          existingColor && existingColor !== eventColor
+            ? MIXED_WASTE_DAY_COLOR
+            : eventColor,
+        selectedTextColor: '#ffffff',
       };
     }
 
@@ -104,9 +188,8 @@ export default function App() {
       marks[eventDate] = {
         ...(marks[eventDate] ?? {}),
         selected: true,
-        selectedColor: '#22c55e',
-        marked: true,
-        dotColor: '#38bdf8',
+        selectedColor: marks[eventDate]?.selectedColor ?? '#22c55e',
+        selectedTextColor: '#ffffff',
       };
     }
 
@@ -145,10 +228,85 @@ export default function App() {
     return raw;
   };
 
+  const saveSessionCredentials = async (
+    savedEmail: string,
+    savedPassword: string,
+    token?: string
+  ) => {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
+    await AsyncStorage.setItem(
+      SESSION_CREDENTIALS_KEY,
+      JSON.stringify({ email: savedEmail, password: savedPassword })
+    );
+
+    const normalizedToken = typeof token === 'string' ? token.trim() : '';
+    const sessionToken =
+      normalizedToken || `session_${savedEmail}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    await AsyncStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
+  };
+
+  const clearSessionCredentials = async () => {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
+    await AsyncStorage.multiRemove([SESSION_CREDENTIALS_KEY, SESSION_TOKEN_KEY]);
+  };
+
+  const refreshSessionDebug = async () => {
+    if (Platform.OS === 'web') {
+      setSessionDebugInfo((previous) => ({
+        ...previous,
+        autoLoginStatus,
+        autoLoginError: autoLoginError || '—',
+      }));
+      return;
+    }
+
+    setIsSessionDebugLoading(true);
+
+    try {
+      const [savedToken, rawCredentials] = await AsyncStorage.multiGet([
+        SESSION_TOKEN_KEY,
+        SESSION_CREDENTIALS_KEY,
+      ]);
+
+      const token = savedToken[1] ?? '';
+      const raw = rawCredentials[1] ?? '';
+      const parsed = raw ? (JSON.parse(raw) as { email?: string; password?: string }) : null;
+      const firebaseUser = auth?.currentUser;
+
+      setSessionDebugInfo({
+        tokenPreview: token ? `${token.slice(0, 14)}...` : 'BRAK',
+        hasCredentials: Boolean(raw),
+        savedEmail: parsed?.email?.trim() || 'BRAK',
+        hasPassword: Boolean(parsed?.password),
+        firebaseUid: firebaseUser?.uid ?? 'BRAK',
+        firebaseEmail: firebaseUser?.email ?? 'BRAK',
+        autoLoginStatus,
+        autoLoginError: autoLoginError || '—',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSessionDebugInfo((previous) => ({
+        ...previous,
+        autoLoginStatus,
+        autoLoginError: message,
+      }));
+    } finally {
+      setIsSessionDebugLoading(false);
+    }
+  };
+
   const saveUserHousehold = async (
     uid: string,
     userMail: string | null,
-    householdId: string
+    householdId: string,
+    reminderTime?: string
   ) => {
     if (!db) {
       return;
@@ -159,6 +317,7 @@ export default function App() {
       {
         householdId,
         email: userMail ?? '',
+        ...(reminderTime ? { notificationTime: reminderTime } : {}),
         updatedAt: Timestamp.now(),
       },
       { merge: true }
@@ -243,7 +402,13 @@ export default function App() {
     const userSnap = await getDoc(userRef);
 
     if (userSnap.exists()) {
-      const data = userSnap.data() as { householdId?: string };
+      const data = userSnap.data() as { householdId?: string; notificationTime?: string };
+
+      if (data.notificationTime && isValidTimeHHmm(data.notificationTime)) {
+        setNotificationTime(data.notificationTime);
+        setNotificationTimeInput(data.notificationTime);
+      }
+
       if (data.householdId) {
         setCurrentHouseholdId(data.householdId);
 
@@ -259,10 +424,40 @@ export default function App() {
     }
 
     const created = await createHouseholdForUser(uid, userMail);
-    await saveUserHousehold(uid, userMail, created.householdId);
+    await saveUserHousehold(uid, userMail, created.householdId, '19:00');
     setCurrentHouseholdId(created.householdId);
     setHouseholdSecretCode(created.secretCode);
+    setNotificationTime('19:00');
+    setNotificationTimeInput('19:00');
   };
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (!update.isAvailable || cancelled) {
+          return;
+        }
+
+        await Updates.fetchUpdateAsync();
+        if (!cancelled) {
+          await Updates.reloadAsync();
+        }
+      } catch {
+        // silent fallback: app continues with currently installed bundle
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isFirebaseConfigured || !auth) {
@@ -272,7 +467,11 @@ export default function App() {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setUserEmail(user?.email ?? null);
       setUserUid(user?.uid ?? null);
+      if (user) {
+        setIsSessionBootstrapping(false);
+      }
       if (!user) {
+        isSigningOutRef.current = false;
         setCurrentHouseholdId(null);
         setHouseholdSecretCode('');
         setEvents([]);
@@ -281,6 +480,78 @@ export default function App() {
 
     return unsubscribeAuth;
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      setIsSessionBootstrapping(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      setAutoLoginStatus('attempt');
+      setAutoLoginError('');
+
+      try {
+        const [savedToken, rawCredentials] = await AsyncStorage.multiGet([
+          SESSION_TOKEN_KEY,
+          SESSION_CREDENTIALS_KEY,
+        ]);
+
+        const token = savedToken[1];
+        const raw = rawCredentials[1];
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!token || !raw) {
+          setAutoLoginStatus('no-token');
+          return;
+        }
+
+        const parsed = JSON.parse(raw) as { email?: string; password?: string };
+        const savedEmail = parsed.email?.trim();
+        const savedPassword = parsed.password ?? '';
+
+        if (!savedEmail || !savedPassword) {
+          await clearSessionCredentials();
+          setAutoLoginStatus('missing-credentials');
+          return;
+        }
+
+        await loginUser(savedEmail, savedPassword);
+        setAutoLoginStatus('success');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setAutoLoginStatus('error');
+        setAutoLoginError(message);
+
+        if (
+          message.includes('auth/invalid-credential') ||
+          message.includes('auth/user-not-found') ||
+          message.includes('auth/wrong-password')
+        ) {
+          await clearSessionCredentials();
+        }
+      } finally {
+        if (!cancelled) {
+          setIsSessionBootstrapping(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (showMenuModal) {
+      refreshSessionDebug();
+    }
+  }, [showMenuModal, userUid, userEmail, autoLoginStatus, autoLoginError]);
 
   useEffect(() => {
     if (!db || !userUid) {
@@ -366,11 +637,21 @@ export default function App() {
           },
           () => {
             setIsEventsLoading(false);
+
+            if (isSigningOutRef.current || !auth?.currentUser) {
+              return;
+            }
+
             notify('Błąd', 'Brak dostępu do danych gospodarstwa.');
           }
         );
       } catch (error) {
         setIsEventsLoading(false);
+
+        if (isSigningOutRef.current || !auth?.currentUser) {
+          return;
+        }
+
         const message = error instanceof Error ? error.message : 'Nie udało się załadować wydarzeń.';
         notify('Błąd', message);
       }
@@ -391,16 +672,17 @@ export default function App() {
     return status === 'granted';
   };
 
-  const scheduleDayBeforeNotification = async (date: string, type: string) => {
+  const scheduleDayBeforeNotification = async (date: string, type: string, time: string) => {
     const [year, month, day] = date.split('-').map(Number);
+    const [hour, minute] = time.split(':').map(Number);
 
-    if (!year || !month || !day) {
+    if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) {
       return undefined;
     }
 
     const triggerDate = new Date(year, month - 1, day);
     triggerDate.setDate(triggerDate.getDate() - 1);
-    triggerDate.setHours(19, 0, 0, 0);
+    triggerDate.setHours(hour, minute, 0, 0);
 
     if (triggerDate <= new Date()) {
       return undefined;
@@ -409,21 +691,98 @@ export default function App() {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('trash-reminders', {
         name: 'Trash reminders',
-        importance: Notifications.AndroidImportance.DEFAULT,
+        importance: Notifications.AndroidImportance.HIGH,
       });
     }
+
+    const triggerYear = triggerDate.getFullYear();
+    const triggerMonth = triggerDate.getMonth() + 1;
+    const triggerDay = triggerDate.getDate();
+    const triggerHour = triggerDate.getHours();
+    const triggerMinute = triggerDate.getMinutes();
 
     return Notifications.scheduleNotificationAsync({
       content: {
         title: `Jutro odbiór: ${type}`,
         body: `Jutro (${date}) odbiór: ${type}`,
       },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: triggerDate,
-        channelId: Platform.OS === 'android' ? 'trash-reminders' : undefined,
-      },
+      trigger:
+        Platform.OS === 'android'
+          ? {
+              type: Notifications.SchedulableTriggerInputTypes.DATE,
+              date: triggerDate,
+              channelId: 'trash-reminders',
+            }
+          : {
+              type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+              year: triggerYear,
+              month: triggerMonth,
+              day: triggerDay,
+              hour: triggerHour,
+              minute: triggerMinute,
+              second: 0,
+              repeats: false,
+            },
     });
+  };
+
+  const rescheduleFutureEventNotifications = async (time: string) => {
+    if (Platform.OS === 'web') {
+      return { updated: 0, skipped: events.length, permissionGranted: false };
+    }
+
+    if (!db || !currentHouseholdId) {
+      return { updated: 0, skipped: events.length, permissionGranted: true };
+    }
+
+    const permissionGranted = await requestNotificationsPermission();
+    if (!permissionGranted) {
+      return { updated: 0, skipped: events.length, permissionGranted: false };
+    }
+
+    const updatedNotificationIds: Record<string, string> = {};
+    let updated = 0;
+    let skipped = 0;
+
+    for (const item of events) {
+      const notificationId = await scheduleDayBeforeNotification(item.date, item.wasteType, time);
+
+      if (!notificationId) {
+        skipped += 1;
+        continue;
+      }
+
+      if (item.notificationId) {
+        try {
+          await Notifications.cancelScheduledNotificationAsync(item.notificationId);
+        } catch {
+          // no-op
+        }
+      }
+
+      await setDoc(
+        doc(db, 'households', currentHouseholdId, 'events', item.id),
+        {
+          notificationId,
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true }
+      );
+
+      updatedNotificationIds[item.id] = notificationId;
+      updated += 1;
+    }
+
+    if (Object.keys(updatedNotificationIds).length > 0) {
+      setEvents((previous) =>
+        previous.map((item) => ({
+          ...item,
+          notificationId: updatedNotificationIds[item.id] ?? item.notificationId,
+        }))
+      );
+    }
+
+    return { updated, skipped, permissionGranted: true };
   };
 
   const onRegister = async () => {
@@ -470,13 +829,16 @@ export default function App() {
         assignment = await createHouseholdForUser(uid, registeredEmail);
       }
 
-      await saveUserHousehold(uid, registeredEmail, assignment.householdId);
+      await saveUserHousehold(uid, registeredEmail, assignment.householdId, '19:00');
 
       setUserEmail(registeredEmail);
       setUserUid(uid);
       setCurrentHouseholdId(assignment.householdId);
       setHouseholdSecretCode(assignment.secretCode);
+      setNotificationTime('19:00');
+      setNotificationTimeInput('19:00');
       setHouseholdInviteCode('');
+      await saveSessionCredentials(registeredEmail, password, credential.user.refreshToken);
     } catch (error) {
       notify('Błąd rejestracji', parseAuthErrorMessage(error));
     }
@@ -491,7 +853,8 @@ export default function App() {
     }
 
     try {
-      await loginUser(normalizedEmail, password);
+      const credential = await loginUser(normalizedEmail, password);
+      await saveSessionCredentials(normalizedEmail, password, credential.user.refreshToken);
     } catch (error) {
       notify('Błąd logowania', parseAuthErrorMessage(error));
     }
@@ -502,12 +865,25 @@ export default function App() {
       return;
     }
 
-    await signOut(auth);
+    isSigningOutRef.current = true;
+    setCurrentHouseholdId(null);
+    setHouseholdSecretCode('');
+    setEvents([]);
+
+    try {
+      await signOut(auth);
+      await clearSessionCredentials();
+    } catch (error) {
+      isSigningOutRef.current = false;
+      const message = error instanceof Error ? error.message : 'Nie udało się wylogować.';
+      notify('Błąd', message);
+    }
   };
 
   const onAddEvent = async () => {
     const normalizedDate = eventDate.trim();
-    const normalizedType = wasteType.trim();
+    const normalizedType =
+      selectedWasteType === 'Inne' ? customWasteType.trim() : selectedWasteType.trim();
 
     if (!normalizedDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       const message = 'Data musi mieć format YYYY-MM-DD.';
@@ -547,8 +923,14 @@ export default function App() {
 
       const hasPermission = await requestNotificationsPermission();
       const notificationId = hasPermission
-        ? await scheduleDayBeforeNotification(normalizedDate, normalizedType)
+        ? await scheduleDayBeforeNotification(normalizedDate, normalizedType, notificationTime)
         : undefined;
+
+      if (!hasPermission) {
+        notify('Powiadomienia', 'Brak zgody na powiadomienia. Odbiór zapisany bez przypomnienia.');
+      } else if (!notificationId) {
+        notify('Powiadomienia', 'Nie zaplanowano przypomnienia (termin przypomnienia już minął).');
+      }
 
       const householdRef = doc(db, 'households', currentHouseholdId);
       const eventsRef = collection(householdRef, 'events');
@@ -594,7 +976,9 @@ export default function App() {
       });
 
       setEventDate('');
-      setWasteType('Zmieszane');
+      setSelectedWasteType('Zmieszane');
+      setCustomWasteType('');
+      setIsWasteTypeDropdownOpen(false);
       setModalError('');
       return true;
     } catch (error) {
@@ -611,7 +995,9 @@ export default function App() {
 
   const onCalendarDayPress = (day: { dateString: string }) => {
     setEventDate(day.dateString);
-    setWasteType('Zmieszane');
+    setSelectedWasteType('Zmieszane');
+    setCustomWasteType('');
+    setIsWasteTypeDropdownOpen(false);
     setModalError('');
     setShowWasteModal(true);
   };
@@ -648,22 +1034,141 @@ export default function App() {
     }
   };
 
+  const onSaveNotificationTime = async () => {
+    const normalizedTime = notificationTimeInput.trim();
+
+    if (!isValidTimeHHmm(normalizedTime)) {
+      notify('Błąd', 'Podaj godzinę w formacie HH:mm, np. 19:30');
+      return;
+    }
+
+    if (!db || !userUid) {
+      notify('Błąd', 'Brak danych użytkownika.');
+      return;
+    }
+
+    try {
+      setIsSavingNotificationTime(true);
+      await setDoc(
+        doc(db, 'users', userUid),
+        {
+          notificationTime: normalizedTime,
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true }
+      );
+
+      setNotificationTime(normalizedTime);
+      setNotificationTimeInput(normalizedTime);
+
+      const rescheduleResult = await rescheduleFutureEventNotifications(normalizedTime);
+
+      if (!rescheduleResult.permissionGranted) {
+        notify('Powiadomienia', 'Brak zgody na powiadomienia. Godzina zapisana, ale system nie mógł przeplanować przypomnień.');
+        return;
+      }
+
+      notify(
+        'OK',
+        `Godzina zapisana. Przeplanowano: ${rescheduleResult.updated}, pominięto: ${rescheduleResult.skipped}.`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nie udało się zapisać godziny.';
+      notify('Błąd', message);
+    } finally {
+      setIsSavingNotificationTime(false);
+    }
+  };
+
+  const onSendTestNotification = async () => {
+    if (Platform.OS === 'web') {
+      notify('Info', 'Test powiadomień działa tylko na telefonie.');
+      return;
+    }
+
+    if (isSendingTestNotification) {
+      return;
+    }
+
+    try {
+      setIsSendingTestNotification(true);
+      const hasPermission = await requestNotificationsPermission();
+
+      if (!hasPermission) {
+        notify('Powiadomienia', 'Brak zgody na powiadomienia w systemie Android.');
+        return;
+      }
+
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('trash-reminders', {
+          name: 'Trash reminders',
+          importance: Notifications.AndroidImportance.DEFAULT,
+        });
+      }
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Test powiadomienia',
+          body: 'Powiadomienia w aplikacji działają poprawnie.',
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: 5,
+          channelId: Platform.OS === 'android' ? 'trash-reminders' : undefined,
+        },
+      });
+
+      notify('OK', 'Testowe powiadomienie zaplanowane za 5 sekund.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nie udało się zaplanować testu.';
+      notify('Błąd', message);
+    } finally {
+      setIsSendingTestNotification(false);
+    }
+  };
+
   if (!isFirebaseConfigured) {
     return (
-      <View style={styles.container}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.containerContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.versionBadge}>{appVersionLabel}</Text>
         <View style={styles.headerCard}>
           <Text style={styles.title}>Brak konfiguracji Firebase</Text>
           <Text style={styles.subtitle}>
             Uzupełnij EXPO_PUBLIC_FIREBASE_* w .env i zrestartuj Expo.
           </Text>
         </View>
+      </ScrollView>
+    );
+  }
+
+  if (!isAuthenticated && isSessionBootstrapping) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+        <View style={styles.headerCard}>
+          <Text style={styles.title}>Przywracanie sesji...</Text>
+          <Text style={styles.subtitle}>Sprawdzam lokalny token logowania.</Text>
+          <View style={styles.loaderBox}>
+            <ActivityIndicator size="small" color="#38bdf8" />
+          </View>
+        </View>
       </View>
     );
   }
 
-  if (!userEmail) {
+  if (!isAuthenticated) {
     return (
-      <View style={styles.container}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.containerContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.versionBadge}>{appVersionLabel}</Text>
         <View style={styles.headerCard}>
           <Text style={styles.title}>Śmieci App — logowanie</Text>
           <Text style={styles.subtitle}>Zaloguj się lub załóż konto dla gospodarstwa.</Text>
@@ -697,116 +1202,165 @@ export default function App() {
           />
 
           <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.secondaryButton} onPress={onRegister}>
-              <Text style={styles.secondaryButtonText}>Zarejestruj</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.primaryButton} onPress={onLogin}>
               <Text style={styles.primaryButtonText}>Zaloguj</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryButton} onPress={onRegister}>
+              <Text style={styles.secondaryButtonText}>Zarejestruj</Text>
+            </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </ScrollView>
     );
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.hamburgerButton}
-          onPress={() => setShowMenuModal(true)}
-        >
-          <Text style={styles.hamburgerIcon}>☰</Text>
-        </TouchableOpacity>
-        <Text style={styles.topBarTitle}>Wspólny kalendarz śmieci</Text>
-      </View>
+      <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+      <ScrollView
+        contentContainerStyle={styles.containerContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.hamburgerButton}
+            onPress={() => setShowMenuModal(true)}
+          >
+            <Text style={styles.hamburgerIcon}>☰</Text>
+          </TouchableOpacity>
+          <Text style={styles.topBarTitle}>Wspólny kalendarz śmieci</Text>
+        </View>
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Kalendarz</Text>
-        <Calendar
-          onDayPress={onCalendarDayPress}
-          markedDates={markedDates}
-          theme={{
-            calendarBackground: 'transparent',
-            textSectionTitleColor: '#94a3b8',
-            dayTextColor: '#e5e7eb',
-            monthTextColor: '#e5e7eb',
-            arrowColor: '#22c55e',
-            todayTextColor: '#38bdf8',
-            selectedDayTextColor: '#ffffff',
-          }}
-          style={styles.calendar}
-        />
-
-        <Text style={styles.selectedDateLabel}>
-          Kliknij dzień w kalendarzu, aby dodać odbiór śmieci.
-        </Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Zaplanowane odbiory</Text>
-        {isEventsLoading ? (
-          <View style={styles.loaderBox}>
-            <ActivityIndicator size="small" color="#38bdf8" />
-            <Text style={styles.loaderText}>Wczytywanie powiadomień...</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={events}
-            keyExtractor={(item) => item.id}
-            ListEmptyComponent={<Text style={styles.muted}>Brak wydarzeń</Text>}
-            renderItem={({ item }) => (
-              <View style={styles.eventRow}>
-                <View style={styles.eventContent}>
-                  <Text style={styles.eventText}>{item.date}</Text>
-                  <Text style={styles.muted}>{item.wasteType}</Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => onDeleteEvent(item)}
-                >
-                  <Text style={styles.deleteButtonText}>Usuń</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Kalendarz</Text>
+          <Calendar
+            onDayPress={onCalendarDayPress}
+            markedDates={markedDates}
+            theme={{
+              calendarBackground: 'transparent',
+              textSectionTitleColor: '#94a3b8',
+              dayTextColor: '#e5e7eb',
+              monthTextColor: '#e5e7eb',
+              arrowColor: '#22c55e',
+              todayTextColor: '#38bdf8',
+              selectedDayTextColor: '#ffffff',
+            }}
+            style={styles.calendar}
           />
-        )}
-      </View>
+
+          <Text style={styles.selectedDateLabel}>
+            Kliknij dzień w kalendarzu, aby dodać odbiór śmieci.
+          </Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Zaplanowane odbiory</Text>
+          {isEventsLoading ? (
+            <View style={styles.loaderBox}>
+              <ActivityIndicator size="small" color="#38bdf8" />
+              <Text style={styles.loaderText}>Wczytywanie powiadomień...</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={events}
+              keyExtractor={(item) => item.id}
+              ListEmptyComponent={<Text style={styles.muted}>Brak wydarzeń</Text>}
+              renderItem={({ item }) => (
+                <View style={styles.eventRow}>
+                  <View style={styles.eventContent}>
+                    <Text style={styles.eventText}>{item.date}</Text>
+                    <Text style={styles.muted}>{item.wasteType}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => onDeleteEvent(item)}
+                  >
+                    <Text style={styles.deleteButtonText}>Usuń</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            />
+          )}
+        </View>
+      </ScrollView>
 
       <Modal
         visible={showWasteModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowWasteModal(false)}
+        onRequestClose={() => {
+          setShowWasteModal(false);
+          setIsWasteTypeDropdownOpen(false);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Dodaj odbiór śmieci</Text>
             <Text style={styles.modalSubtitle}>Data: {eventDate}</Text>
 
-            <TextInput
-              value={wasteType}
-              onChangeText={setWasteType}
-              placeholder="Rodzaj śmieci"
-              placeholderTextColor="#64748b"
-              style={styles.input}
-            />
+            <TouchableOpacity
+              style={styles.dropdownTrigger}
+              onPress={() => setIsWasteTypeDropdownOpen((previous) => !previous)}
+            >
+              <Text style={styles.dropdownTriggerText}>{selectedWasteType}</Text>
+              <Text style={styles.dropdownChevron}>{isWasteTypeDropdownOpen ? '▴' : '▾'}</Text>
+            </TouchableOpacity>
+
+            {isWasteTypeDropdownOpen ? (
+              <View style={styles.dropdownList}>
+                {POPULAR_WASTE_TYPES.map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      setSelectedWasteType(type);
+                      if (type !== 'Inne') {
+                        setCustomWasteType('');
+                      }
+                      setIsWasteTypeDropdownOpen(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dropdownItemText,
+                        selectedWasteType === type && styles.dropdownItemTextSelected,
+                      ]}
+                    >
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {selectedWasteType === 'Inne' ? (
+              <TextInput
+                value={customWasteType}
+                onChangeText={setCustomWasteType}
+                placeholder="Wpisz własny rodzaj śmieci"
+                placeholderTextColor="#64748b"
+                style={styles.input}
+              />
+            ) : null}
 
             {modalError ? <Text style={styles.modalError}>{modalError}</Text> : null}
 
             <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={() => setShowWasteModal(false)}
-              >
-                <Text style={styles.secondaryButtonText}>Anuluj</Text>
-              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.primaryButton, isSavingEvent && styles.disabledButton]}
                 onPress={onConfirmWasteType}
                 disabled={isSavingEvent}
               >
                 <Text style={styles.primaryButtonText}>{isSavingEvent ? 'Zapisywanie...' : 'Zapisz'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => {
+                  setShowWasteModal(false);
+                  setIsWasteTypeDropdownOpen(false);
+                }}
+              >
+                <Text style={styles.secondaryButtonText}>Anuluj</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -820,19 +1374,84 @@ export default function App() {
         onRequestClose={() => setShowMenuModal(false)}
       >
         <View style={styles.menuOverlay}>
-          <TouchableOpacity
-            style={styles.menuBackdrop}
-            onPress={() => setShowMenuModal(false)}
-          />
-          <View style={styles.menuPanel}>
+          <ScrollView
+            style={styles.menuPanel}
+            contentContainerStyle={styles.menuPanelContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
             <Text style={styles.menuTitle}>Konto</Text>
             <View style={styles.menuUserBox}>
               <Text style={styles.menuUserLabel}>Zalogowany użytkownik</Text>
-              <Text style={styles.menuUserEmail}>{userEmail}</Text>
+              <Text style={styles.menuUserEmail}>{userEmail ?? 'Brak email'}</Text>
             </View>
             <View style={styles.menuUserBox}>
               <Text style={styles.menuUserLabel}>Tajny kod gospodarstwa</Text>
               <Text style={styles.menuSecretCode}>{householdSecretCode || '—'}</Text>
+            </View>
+            <View style={styles.menuUserBox}>
+              <Text style={styles.menuUserLabel}>Godzina przypomnienia (dzień wcześniej)</Text>
+              <TextInput
+                value={notificationTimeInput}
+                onChangeText={setNotificationTimeInput}
+                placeholder="HH:mm"
+                placeholderTextColor="#64748b"
+                style={styles.menuInput}
+              />
+              <TouchableOpacity
+                style={[styles.menuSaveButton, isSavingNotificationTime && styles.disabledButton]}
+                onPress={onSaveNotificationTime}
+                disabled={isSavingNotificationTime}
+              >
+                <Text style={styles.menuSaveText}>
+                  {isSavingNotificationTime ? 'Zapisywanie...' : 'Zapisz godzinę'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.menuTestButton, isSendingTestNotification && styles.disabledButton]}
+                onPress={onSendTestNotification}
+                disabled={isSendingTestNotification}
+              >
+                <Text style={styles.menuTestText}>
+                  {isSendingTestNotification ? 'Wysyłanie testu...' : 'Wyślij test powiadomienia'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.menuUserBox}>
+              <Text style={styles.menuUserLabel}>Debug sesji (telefon)</Text>
+              <Text style={styles.menuDebugLine}>Token: {sessionDebugInfo.tokenPreview}</Text>
+              <Text style={styles.menuDebugLine}>
+                Credentials: {sessionDebugInfo.hasCredentials ? 'TAK' : 'NIE'}
+              </Text>
+              <Text style={styles.menuDebugLine}>Email local: {sessionDebugInfo.savedEmail}</Text>
+              <Text style={styles.menuDebugLine}>
+                Hasło local: {sessionDebugInfo.hasPassword ? 'TAK' : 'NIE'}
+              </Text>
+              <Text style={styles.menuDebugLine}>Firebase UID: {sessionDebugInfo.firebaseUid}</Text>
+              <Text style={styles.menuDebugLine}>Firebase email: {sessionDebugInfo.firebaseEmail}</Text>
+              <Text style={styles.menuDebugLine}>AutoLogin: {sessionDebugInfo.autoLoginStatus}</Text>
+              <Text style={styles.menuDebugLine}>Błąd: {sessionDebugInfo.autoLoginError}</Text>
+
+              <TouchableOpacity
+                style={[styles.menuDebugButton, isSessionDebugLoading && styles.disabledButton]}
+                onPress={refreshSessionDebug}
+                disabled={isSessionDebugLoading}
+              >
+                <Text style={styles.menuDebugButtonText}>
+                  {isSessionDebugLoading ? 'Odświeżanie...' : 'Odśwież debug sesji'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.menuDebugDangerButton}
+                onPress={async () => {
+                  await clearSessionCredentials();
+                  await refreshSessionDebug();
+                  notify('Debug', 'Wyczyszczono lokalną sesję.');
+                }}
+              >
+                <Text style={styles.menuDebugDangerText}>Wyczyść lokalną sesję</Text>
+              </TouchableOpacity>
             </View>
             <TouchableOpacity
               style={styles.menuLogoutButton}
@@ -843,7 +1462,11 @@ export default function App() {
             >
               <Text style={styles.menuLogoutText}>Wyloguj</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
+          <TouchableOpacity
+            style={styles.menuBackdrop}
+            onPress={() => setShowMenuModal(false)}
+          />
         </View>
       </Modal>
     </View>
@@ -853,9 +1476,26 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#0b1220',
+  },
+  containerContent: {
     padding: 16,
     gap: 14,
-    backgroundColor: '#0b1220',
+    paddingBottom: 24,
+  },
+  versionBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 10,
+    zIndex: 20,
+    color: '#94a3b8',
+    fontSize: 11,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   topBar: {
     flexDirection: 'row',
@@ -937,6 +1577,48 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     color: '#e5e7eb',
     marginBottom: 10,
+  },
+  dropdownTrigger: {
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#0f172a',
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdownTriggerText: {
+    color: '#e5e7eb',
+    fontSize: 14,
+  },
+  dropdownChevron: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginLeft: 10,
+  },
+  dropdownList: {
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 8,
+    marginBottom: 10,
+    overflow: 'hidden',
+    backgroundColor: '#0b1220',
+  },
+  dropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f2937',
+  },
+  dropdownItemText: {
+    color: '#cbd5e1',
+  },
+  dropdownItemTextSelected: {
+    color: '#22c55e',
+    fontWeight: '700',
   },
   actionRow: {
     flexDirection: 'row',
@@ -1052,7 +1734,10 @@ const styles = StyleSheet.create({
     borderRightColor: '#1f2937',
     paddingTop: 32,
     paddingHorizontal: 16,
+  },
+  menuPanelContent: {
     gap: 14,
+    paddingBottom: 20,
   },
   menuTitle: {
     color: '#f8fafc',
@@ -1079,6 +1764,64 @@ const styles = StyleSheet.create({
     color: '#22c55e',
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  menuInput: {
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    backgroundColor: '#0b1220',
+    color: '#e5e7eb',
+    marginBottom: 10,
+  },
+  menuSaveButton: {
+    backgroundColor: '#1d4ed8',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  menuSaveText: {
+    color: '#dbeafe',
+    fontWeight: '700',
+  },
+  menuTestButton: {
+    marginTop: 10,
+    backgroundColor: '#0f766e',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  menuTestText: {
+    color: '#ccfbf1',
+    fontWeight: '700',
+  },
+  menuDebugLine: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  menuDebugButton: {
+    marginTop: 8,
+    backgroundColor: '#334155',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  menuDebugButtonText: {
+    color: '#e2e8f0',
+    fontWeight: '700',
+  },
+  menuDebugDangerButton: {
+    marginTop: 8,
+    backgroundColor: '#7f1d1d',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  menuDebugDangerText: {
+    color: '#fecaca',
+    fontWeight: '700',
   },
   menuLogoutButton: {
     backgroundColor: '#7f1d1d',

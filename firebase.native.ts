@@ -2,11 +2,14 @@ import { initializeApp } from 'firebase/app';
 import {
   createUserWithEmailAndPassword,
   getAuth,
+  initializeAuth,
   signInWithEmailAndPassword,
+  type Auth,
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, type Firestore } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const normalizeEnvValue = (value) => {
+const normalizeEnvValue = (value: unknown): string => {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) {
     return '';
@@ -36,16 +39,29 @@ export const isFirebaseConfigured = Boolean(
 );
 
 let app;
-export let auth = null;
-export let db = null;
+export let auth: Auth | null = null;
+export let db: Firestore | null = null;
 
 if (isFirebaseConfigured) {
   app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
+
+  try {
+    const { getReactNativePersistence } = require('firebase/auth/react-native') as {
+      getReactNativePersistence: (storage: typeof AsyncStorage) => unknown;
+    };
+    const persistence = getReactNativePersistence(AsyncStorage) as any;
+
+    auth = initializeAuth(app, {
+      persistence,
+    });
+  } catch {
+    auth = getAuth(app);
+  }
+
   db = getFirestore(app);
 }
 
-export const registerUser = (email, password) => {
+export const registerUser = (email: string, password: string) => {
   if (!auth) {
     throw new Error('Firebase nie jest skonfigurowany.');
   }
@@ -53,7 +69,7 @@ export const registerUser = (email, password) => {
   return createUserWithEmailAndPassword(auth, email, password);
 };
 
-export const loginUser = (email, password) => {
+export const loginUser = (email: string, password: string) => {
   if (!auth) {
     throw new Error('Firebase nie jest skonfigurowany.');
   }

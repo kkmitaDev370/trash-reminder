@@ -2,7 +2,7 @@
   "expo": {
     "name": "Harmonogram Śmieci",
     "slug": "trash-reminder",
-    "version": "1.0.0",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,7 +22,8 @@
         "image": "./assets/splash-icon.png",
         "resizeMode": "contain",
         "backgroundColor": "#0b1220"
-      }
+      },
+      "buildNumber": "6"
     },
     "android": {
       "splash": {
@@ -35,7 +36,8 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": false,
-      "package": "com.anonymous.trashreminder"
+      "package": "com.anonymous.trashreminder",
+      "versionCode": 6
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -45,14 +47,13 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "996c8815-6620-4ed4-bb3c-61a7bb21ffe0"
+        "projectId": "b60bb173-8027-4942-9054-19aad01d4e35"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.1",
     "updates": {
-      "url": "https://u.expo.dev/996c8815-6620-4ed4-bb3c-61a7bb21ffe0"
-    }
+      "url": "https://u.expo.dev/b60bb173-8027-4942-9054-19aad01d4e35"
+    },
+    "owner": "traasd12312"
   }
 }
