@@ -31,10 +31,14 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
-# Firebase config (contains sensitive API keys)
+# local firebase config
 firebaseConfig.ts
+
+# generated apks
+*.apk
 
 # typescript
 *.tsbuildinfo

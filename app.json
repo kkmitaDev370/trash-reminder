@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -41,13 +41,18 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "@react-native-community/datetimepicker",
       "expo-notifications"
     ],
     "extra": {
       "eas": {
         "projectId": "996c8815-6620-4ed4-bb3c-61a7bb21ffe0"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/996c8815-6620-4ed4-bb3c-61a7bb21ffe0"
     }
   }
 }
