@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,9 +11,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   addDoc,
   arrayUnion,
@@ -29,13 +29,70 @@ import {
   setDoc,
   Timestamp,
   where,
-} from 'firebase/firestore';
-import * as Notifications from 'expo-notifications';
-import * as Application from 'expo-application';
-import Constants from 'expo-constants';
-import * as Updates from 'expo-updates';
-import { Calendar } from 'react-native-calendars';
-import { auth, db, isFirebaseConfigured, loginUser, registerUser } from './firebase';
+} from "firebase/firestore";
+import * as Notifications from "expo-notifications";
+import * as Application from "expo-application";
+import Constants from "expo-constants";
+import * as Updates from "expo-updates";
+import { Calendar, LocaleConfig } from "react-native-calendars";
+// Ustawienia polskiej lokalizacji dla kalendarza
+LocaleConfig.locales['pl'] = {
+  monthNames: [
+    'Styczeń',
+    'Luty',
+    'Marzec',
+    'Kwiecień',
+    'Maj',
+    'Czerwiec',
+    'Lipiec',
+    'Sierpień',
+    'Wrzesień',
+    'Październik',
+    'Listopad',
+    'Grudzień',
+  ],
+  monthNamesShort: [
+    'Sty',
+    'Lut',
+    'Mar',
+    'Kwi',
+    'Maj',
+    'Cze',
+    'Lip',
+    'Sie',
+    'Wrz',
+    'Paź',
+    'Lis',
+    'Gru',
+  ],
+  dayNames: [
+    'Niedziela',
+    'Poniedziałek',
+    'Wtorek',
+    'Środa',
+    'Czwartek',
+    'Piątek',
+    'Sobota',
+  ],
+  dayNamesShort: [
+    'Nd',
+    'Pn',
+    'Wt',
+    'Śr',
+    'Cz',
+    'Pt',
+    'Sb',
+  ],
+  today: 'Dziś',
+};
+LocaleConfig.defaultLocale = 'pl';
+import {
+  auth,
+  db,
+  isFirebaseConfigured,
+  loginUser,
+  registerUser,
+} from "./firebase";
 
 type TrashEvent = {
   id: string;
@@ -49,7 +106,7 @@ type HouseholdJoinResult = {
   secretCode: string;
 };
 
-if (Platform.OS !== 'web') {
+if (Platform.OS !== "web") {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
@@ -66,66 +123,87 @@ const normalizeCode = (value: string) => value.trim().toUpperCase();
 const createSecretCode = () =>
   Math.random().toString(36).slice(2, 8).toUpperCase();
 
-const isValidTimeHHmm = (value: string) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+const isValidTimeHHmm = (value: string) =>
+  /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
 
 const POPULAR_WASTE_TYPES = [
-  'Zmieszane',
-  'Plastik i metal',
-  'Papier',
-  'Szkło',
-  'Bio',
-  'Gabaryty',
-  'Elektroodpady',
-  'Inne',
+  "Zmieszane",
+  "Plastik i metal",
+  "Papier",
+  "Szkło",
+  "Bio",
+  "Gabaryty",
+  "Elektroodpady",
+  "Inne",
 ];
 
-const MIXED_WASTE_DAY_COLOR = '#7c3aed';
-const SESSION_CREDENTIALS_KEY = 'trash_reminder_session_credentials_v1';
-const SESSION_TOKEN_KEY = 'trash_reminder_session_token_v1';
+const MIXED_WASTE_DAY_COLOR = "#7c3aed";
+const SESSION_CREDENTIALS_KEY = "trash_reminder_session_credentials_v1";
+const SESSION_TOKEN_KEY = "trash_reminder_session_token_v1";
 
 const getWasteTypeColor = (wasteType: string) => {
   const normalized = wasteType.trim().toLowerCase();
 
-  if (normalized.includes('zmiesz')) return '#475569';
-  if (normalized.includes('plastik') || normalized.includes('metal')) return '#f59e0b';
-  if (normalized.includes('papier')) return '#3b82f6';
-  if (normalized.includes('szk')) return '#14b8a6';
-  if (normalized.includes('bio')) return '#16a34a';
-  if (normalized.includes('gabary')) return '#a855f7';
-  if (normalized.includes('elektro')) return '#ef4444';
+  if (normalized.includes("zmiesz")) return "#475569";
+  if (normalized.includes("plastik") || normalized.includes("metal"))
+    return "#f59e0b";
+  if (normalized.includes("papier")) return "#3b82f6";
+  if (normalized.includes("szk")) return "#14b8a6";
+  if (normalized.includes("bio")) return "#16a34a";
+  if (normalized.includes("gabary")) return "#a855f7";
+  if (normalized.includes("elektro")) return "#ef4444";
 
-  return '#6366f1';
+  return "#6366f1";
 };
 
 export default function App() {
+    // Pokazuj wersję tylko dla buildów deweloperskich
+    const isDevBuild =
+      Constants.executionEnvironment === 'storeClient' // Expo Go
+      || (Constants.manifest2?.extra?.eas?.buildProfile &&
+        ['development', 'preview', 'previewLight'].includes(Constants.manifest2.extra.eas.buildProfile))
+      || (__DEV__ === true);
   const isSigningOutRef = useRef(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [householdInviteCode, setHouseholdInviteCode] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [householdInviteCode, setHouseholdInviteCode] = useState("");
+  const [registerError, setRegisterError] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState("");
+
+  const emailRef = useRef<any>(null);
+  const passwordRef = useRef<any>(null);
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userUid, setUserUid] = useState<string | null>(null);
-  const [notificationTime, setNotificationTime] = useState('19:00');
-  const [notificationTimeInput, setNotificationTimeInput] = useState('19:00');
-  const [isSavingNotificationTime, setIsSavingNotificationTime] = useState(false);
-  const [isSendingTestNotification, setIsSendingTestNotification] = useState(false);
+  const [notificationTime, setNotificationTime] = useState("19:00");
+  const [notificationTimeInput, setNotificationTimeInput] = useState("19:00");
+  const [isSavingNotificationTime, setIsSavingNotificationTime] =
+    useState(false);
+  const [isSendingTestNotification, setIsSendingTestNotification] =
+    useState(false);
 
-  const [currentHouseholdId, setCurrentHouseholdId] = useState<string | null>(null);
-  const [householdSecretCode, setHouseholdSecretCode] = useState<string>('');
+  const [currentHouseholdId, setCurrentHouseholdId] = useState<string | null>(
+    null,
+  );
+  const [householdSecretCode, setHouseholdSecretCode] = useState<string>("");
 
-  const [eventDate, setEventDate] = useState('');
-  const [selectedWasteType, setSelectedWasteType] = useState('Zmieszane');
-  const [customWasteType, setCustomWasteType] = useState('');
+  const [eventDate, setEventDate] = useState("");
+  const [selectedWasteType, setSelectedWasteType] = useState("Zmieszane");
+  const [customWasteType, setCustomWasteType] = useState("");
   const [isWasteTypeDropdownOpen, setIsWasteTypeDropdownOpen] = useState(false);
   const [showWasteModal, setShowWasteModal] = useState(false);
-  const [modalError, setModalError] = useState('');
+  const [modalError, setModalError] = useState("");
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [showMenuModal, setShowMenuModal] = useState(false);
   const [events, setEvents] = useState<TrashEvent[]>([]);
   const [isEventsLoading, setIsEventsLoading] = useState(false);
-  const [isSessionBootstrapping, setIsSessionBootstrapping] = useState(Platform.OS !== 'web');
-  const [autoLoginStatus, setAutoLoginStatus] = useState('idle');
-  const [autoLoginError, setAutoLoginError] = useState('');
+  const [isSessionBootstrapping, setIsSessionBootstrapping] = useState(
+    Platform.OS !== "web",
+  );
+  const [autoLoginStatus, setAutoLoginStatus] = useState("idle");
+  const [autoLoginError, setAutoLoginError] = useState("");
   const [sessionDebugInfo, setSessionDebugInfo] = useState<{
     tokenPreview: string;
     hasCredentials: boolean;
@@ -136,20 +214,20 @@ export default function App() {
     autoLoginStatus: string;
     autoLoginError: string;
   }>({
-    tokenPreview: '—',
+    tokenPreview: "—",
     hasCredentials: false,
-    savedEmail: '—',
+    savedEmail: "—",
     hasPassword: false,
-    firebaseUid: '—',
-    firebaseEmail: '—',
-    autoLoginStatus: 'idle',
-    autoLoginError: '—',
+    firebaseUid: "—",
+    firebaseEmail: "—",
+    autoLoginStatus: "idle",
+    autoLoginError: "—",
   });
   const [isSessionDebugLoading, setIsSessionDebugLoading] = useState(false);
   const isAuthenticated = Boolean(userUid);
   const appVersionLabel = (() => {
-    const nativeVersion = Application.nativeApplicationVersion ?? 'dev';
-    const nativeBuild = Application.nativeBuildVersion ?? 'dev';
+    const nativeVersion = Application.nativeApplicationVersion ?? "dev";
+    const nativeBuild = Application.nativeBuildVersion ?? "dev";
     const otaVersion = Constants.expoConfig?.version;
 
     if (otaVersion && otaVersion !== nativeVersion) {
@@ -180,18 +258,19 @@ export default function App() {
           existingColor && existingColor !== eventColor
             ? MIXED_WASTE_DAY_COLOR
             : eventColor,
-        selectedTextColor: '#ffffff',
+        selectedTextColor: "#ffffff",
       };
     }
 
-    if (eventDate) {
-      marks[eventDate] = {
-        ...(marks[eventDate] ?? {}),
-        selected: true,
-        selectedColor: marks[eventDate]?.selectedColor ?? '#22c55e',
-        selectedTextColor: '#ffffff',
-      };
-    }
+    // Nie podświetlaj wybranego dnia na zielono po kliknięciu
+    // if (eventDate) {
+    //   marks[eventDate] = {
+    //     ...(marks[eventDate] ?? {}),
+    //     selected: true,
+    //     selectedColor: marks[eventDate]?.selectedColor ?? "#22c55e",
+    //     selectedTextColor: "#ffffff",
+    //   };
+    // }
 
     return marks;
   }, [eventDate, events]);
@@ -199,8 +278,8 @@ export default function App() {
   const notify = (title: string, message?: string) => {
     const text = message ? `${title}: ${message}` : title;
 
-    if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && typeof window.alert === "function") {
         window.alert(text);
       }
       return;
@@ -212,17 +291,20 @@ export default function App() {
   const parseAuthErrorMessage = (error: unknown) => {
     const raw = error instanceof Error ? error.message : String(error);
 
-    if (raw.includes('auth/invalid-email')) {
-      return 'Niepoprawny adres email (przykład: jan@example.com).';
+    if (raw.includes("auth/invalid-email")) {
+      return "Niepoprawny adres email (przykład: jan@example.com).";
     }
-    if (raw.includes('auth/email-already-in-use')) {
-      return 'Ten email jest już zarejestrowany.';
+    if (raw.includes("auth/email-already-in-use")) {
+      return "Ten email jest już zarejestrowany.";
     }
-    if (raw.includes('auth/weak-password')) {
-      return 'Hasło jest za słabe (minimum 6 znaków).';
+    if (raw.includes("auth/weak-password")) {
+      return "Hasło jest za słabe (minimum 6 znaków).";
     }
-    if (raw.includes('auth/invalid-credential') || raw.includes('auth/user-not-found')) {
-      return 'Nieprawidłowy email lub hasło.';
+    if (
+      raw.includes("auth/invalid-credential") ||
+      raw.includes("auth/user-not-found")
+    ) {
+      return "Nieprawidłowy email lub hasło.";
     }
 
     return raw;
@@ -231,38 +313,42 @@ export default function App() {
   const saveSessionCredentials = async (
     savedEmail: string,
     savedPassword: string,
-    token?: string
+    token?: string,
   ) => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       return;
     }
 
     await AsyncStorage.setItem(
       SESSION_CREDENTIALS_KEY,
-      JSON.stringify({ email: savedEmail, password: savedPassword })
+      JSON.stringify({ email: savedEmail, password: savedPassword }),
     );
 
-    const normalizedToken = typeof token === 'string' ? token.trim() : '';
+    const normalizedToken = typeof token === "string" ? token.trim() : "";
     const sessionToken =
-      normalizedToken || `session_${savedEmail}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      normalizedToken ||
+      `session_${savedEmail}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
     await AsyncStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
   };
 
   const clearSessionCredentials = async () => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       return;
     }
 
-    await AsyncStorage.multiRemove([SESSION_CREDENTIALS_KEY, SESSION_TOKEN_KEY]);
+    await AsyncStorage.multiRemove([
+      SESSION_CREDENTIALS_KEY,
+      SESSION_TOKEN_KEY,
+    ]);
   };
 
   const refreshSessionDebug = async () => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       setSessionDebugInfo((previous) => ({
         ...previous,
         autoLoginStatus,
-        autoLoginError: autoLoginError || '—',
+        autoLoginError: autoLoginError || "—",
       }));
       return;
     }
@@ -275,20 +361,22 @@ export default function App() {
         SESSION_CREDENTIALS_KEY,
       ]);
 
-      const token = savedToken[1] ?? '';
-      const raw = rawCredentials[1] ?? '';
-      const parsed = raw ? (JSON.parse(raw) as { email?: string; password?: string }) : null;
+      const token = savedToken[1] ?? "";
+      const raw = rawCredentials[1] ?? "";
+      const parsed = raw
+        ? (JSON.parse(raw) as { email?: string; password?: string })
+        : null;
       const firebaseUser = auth?.currentUser;
 
       setSessionDebugInfo({
-        tokenPreview: token ? `${token.slice(0, 14)}...` : 'BRAK',
+        tokenPreview: token ? `${token.slice(0, 14)}...` : "BRAK",
         hasCredentials: Boolean(raw),
-        savedEmail: parsed?.email?.trim() || 'BRAK',
+        savedEmail: parsed?.email?.trim() || "BRAK",
         hasPassword: Boolean(parsed?.password),
-        firebaseUid: firebaseUser?.uid ?? 'BRAK',
-        firebaseEmail: firebaseUser?.email ?? 'BRAK',
+        firebaseUid: firebaseUser?.uid ?? "BRAK",
+        firebaseEmail: firebaseUser?.email ?? "BRAK",
         autoLoginStatus,
-        autoLoginError: autoLoginError || '—',
+        autoLoginError: autoLoginError || "—",
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -306,33 +394,33 @@ export default function App() {
     uid: string,
     userMail: string | null,
     householdId: string,
-    reminderTime?: string
+    reminderTime?: string,
   ) => {
     if (!db) {
       return;
     }
 
     await setDoc(
-      doc(db, 'users', uid),
+      doc(db, "users", uid),
       {
         householdId,
-        email: userMail ?? '',
+        email: userMail ?? "",
         ...(reminderTime ? { notificationTime: reminderTime } : {}),
         updatedAt: Timestamp.now(),
       },
-      { merge: true }
+      { merge: true },
     );
   };
 
   const createHouseholdForUser = async (
     uid: string,
-    userMail: string | null
+    userMail: string | null,
   ): Promise<HouseholdJoinResult> => {
     if (!db) {
-      throw new Error('Firebase nie jest skonfigurowany.');
+      throw new Error("Firebase nie jest skonfigurowany.");
     }
 
-    const householdRef = doc(collection(db, 'households'));
+    const householdRef = doc(collection(db, "households"));
     const secretCode = createSecretCode();
 
     await setDoc(householdRef, {
@@ -352,16 +440,16 @@ export default function App() {
   const joinHouseholdByCode = async (
     uid: string,
     userMail: string | null,
-    code: string
+    code: string,
   ): Promise<HouseholdJoinResult | null> => {
     if (!db) {
-      throw new Error('Firebase nie jest skonfigurowany.');
+      throw new Error("Firebase nie jest skonfigurowany.");
     }
 
     const codeQuery = query(
-      collection(db, 'households'),
-      where('secretCode', '==', code),
-      limit(1)
+      collection(db, "households"),
+      where("secretCode", "==", code),
+      limit(1),
     );
 
     const snapshot = await getDocs(codeQuery);
@@ -370,7 +458,7 @@ export default function App() {
     }
 
     const householdDoc = snapshot.docs[0];
-    const householdRef = doc(db, 'households', householdDoc.id);
+    const householdRef = doc(db, "households", householdDoc.id);
 
     const membershipPayload: {
       members: ReturnType<typeof arrayUnion>;
@@ -385,7 +473,15 @@ export default function App() {
       membershipPayload.memberEmails = arrayUnion(userMail);
     }
 
-    await setDoc(householdRef, membershipPayload, { merge: true });
+    try {
+      await setDoc(householdRef, membershipPayload, { merge: true });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      if (raw.includes('permission-denied')) {
+        throw new Error('Brak uprawnień do dołączenia do gospodarstwa (reguły Firestore).');
+      }
+      throw err;
+    }
 
     return {
       householdId: householdDoc.id,
@@ -398,11 +494,14 @@ export default function App() {
       return;
     }
 
-    const userRef = doc(db, 'users', uid);
+    const userRef = doc(db, "users", uid);
     const userSnap = await getDoc(userRef);
 
     if (userSnap.exists()) {
-      const data = userSnap.data() as { householdId?: string; notificationTime?: string };
+      const data = userSnap.data() as {
+        householdId?: string;
+        notificationTime?: string;
+      };
 
       if (data.notificationTime && isValidTimeHHmm(data.notificationTime)) {
         setNotificationTime(data.notificationTime);
@@ -412,27 +511,55 @@ export default function App() {
       if (data.householdId) {
         setCurrentHouseholdId(data.householdId);
 
-        const householdRef = doc(db, 'households', data.householdId);
+        const householdRef = doc(db, "households", data.householdId);
         const householdSnap = await getDoc(householdRef);
         if (householdSnap.exists()) {
           const householdData = householdSnap.data() as { secretCode?: string };
-          setHouseholdSecretCode(householdData.secretCode ?? '');
+          setHouseholdSecretCode(householdData.secretCode ?? "");
         }
 
         return;
       }
     }
 
+    // Jeśli użytkownik został już dopisany do gospodarstwa (np. joinHouseholdByCode
+    // zadziałało wcześniej, ale /users/{uid} jeszcze nie zostało zaktualizowane),
+    // znajdź takie gospodarstwo po polu `members` i użyj go zamiast tworzyć nowego.
+    try {
+      const membershipQuery = query(
+        collection(db, "households"),
+        where("members", "array-contains", uid),
+        limit(1),
+      );
+
+      const membershipSnap = await getDocs(membershipQuery);
+      if (!membershipSnap.empty) {
+        const householdDoc = membershipSnap.docs[0];
+        const hid = householdDoc.id;
+        const hhData = householdDoc.data() as { secretCode?: string };
+
+        // Zapisz householdId w dokumencie użytkownika (jeśli jeszcze nie ma)
+        await saveUserHousehold(uid, userMail, hid, "19:00");
+
+        setCurrentHouseholdId(hid);
+        setHouseholdSecretCode(hhData.secretCode ?? "");
+        return;
+      }
+    } catch (err) {
+      // jeśli zapytanie nie powiedzie się — kontynuuj i utwórz nowe gospodarstwo
+      // (nie blokujemy użytkownika przez błąd zapisu czy odczytu)
+    }
+
     const created = await createHouseholdForUser(uid, userMail);
-    await saveUserHousehold(uid, userMail, created.householdId, '19:00');
+    await saveUserHousehold(uid, userMail, created.householdId, "19:00");
     setCurrentHouseholdId(created.householdId);
     setHouseholdSecretCode(created.secretCode);
-    setNotificationTime('19:00');
-    setNotificationTimeInput('19:00');
+    setNotificationTime("19:00");
+    setNotificationTimeInput("19:00");
   };
 
   useEffect(() => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       return;
     }
 
@@ -473,7 +600,7 @@ export default function App() {
       if (!user) {
         isSigningOutRef.current = false;
         setCurrentHouseholdId(null);
-        setHouseholdSecretCode('');
+        setHouseholdSecretCode("");
         setEvents([]);
       }
     });
@@ -482,7 +609,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       setIsSessionBootstrapping(false);
       return;
     }
@@ -490,8 +617,8 @@ export default function App() {
     let cancelled = false;
 
     (async () => {
-      setAutoLoginStatus('attempt');
-      setAutoLoginError('');
+      setAutoLoginStatus("attempt");
+      setAutoLoginError("");
 
       try {
         const [savedToken, rawCredentials] = await AsyncStorage.multiGet([
@@ -507,31 +634,31 @@ export default function App() {
         }
 
         if (!token || !raw) {
-          setAutoLoginStatus('no-token');
+          setAutoLoginStatus("no-token");
           return;
         }
 
         const parsed = JSON.parse(raw) as { email?: string; password?: string };
         const savedEmail = parsed.email?.trim();
-        const savedPassword = parsed.password ?? '';
+        const savedPassword = parsed.password ?? "";
 
         if (!savedEmail || !savedPassword) {
           await clearSessionCredentials();
-          setAutoLoginStatus('missing-credentials');
+          setAutoLoginStatus("missing-credentials");
           return;
         }
 
         await loginUser(savedEmail, savedPassword);
-        setAutoLoginStatus('success');
+        setAutoLoginStatus("success");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        setAutoLoginStatus('error');
+        setAutoLoginStatus("error");
         setAutoLoginError(message);
 
         if (
-          message.includes('auth/invalid-credential') ||
-          message.includes('auth/user-not-found') ||
-          message.includes('auth/wrong-password')
+          message.includes("auth/invalid-credential") ||
+          message.includes("auth/user-not-found") ||
+          message.includes("auth/wrong-password")
         ) {
           await clearSessionCredentials();
         }
@@ -565,8 +692,11 @@ export default function App() {
         await ensureUserHousehold(userUid, userEmail);
       } catch (error) {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : 'Nie udało się załadować gospodarstwa.';
-          notify('Błąd', message);
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Nie udało się załadować gospodarstwa.";
+          notify("Błąd", message);
         }
       }
     })();
@@ -583,7 +713,7 @@ export default function App() {
       return;
     }
 
-    const householdRef = doc(db, 'households', currentHouseholdId);
+    const householdRef = doc(db, "households", currentHouseholdId);
     let unsubscribe = () => {};
     let isMounted = true;
     setIsEventsLoading(true);
@@ -608,11 +738,11 @@ export default function App() {
         const householdSnap = await getDoc(householdRef);
         if (householdSnap.exists() && isMounted) {
           const data = householdSnap.data() as { secretCode?: string };
-          setHouseholdSecretCode(data.secretCode ?? '');
+          setHouseholdSecretCode(data.secretCode ?? "");
         }
 
-        const eventsRef = collection(householdRef, 'events');
-        const q = query(eventsRef, orderBy('date', 'asc'));
+        const eventsRef = collection(householdRef, "events");
+        const q = query(eventsRef, orderBy("date", "asc"));
 
         unsubscribe = onSnapshot(
           q,
@@ -642,8 +772,8 @@ export default function App() {
               return;
             }
 
-            notify('Błąd', 'Brak dostępu do danych gospodarstwa.');
-          }
+            notify("Błąd", "Brak dostępu do danych gospodarstwa.");
+          },
         );
       } catch (error) {
         setIsEventsLoading(false);
@@ -652,8 +782,11 @@ export default function App() {
           return;
         }
 
-        const message = error instanceof Error ? error.message : 'Nie udało się załadować wydarzeń.';
-        notify('Błąd', message);
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Nie udało się załadować wydarzeń.";
+        notify("Błąd", message);
       }
     })();
 
@@ -664,17 +797,21 @@ export default function App() {
   }, [currentHouseholdId, userUid, userEmail]);
 
   const requestNotificationsPermission = async () => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       return false;
     }
 
     const { status } = await Notifications.requestPermissionsAsync();
-    return status === 'granted';
+    return status === "granted";
   };
 
-  const scheduleDayBeforeNotification = async (date: string, type: string, time: string) => {
-    const [year, month, day] = date.split('-').map(Number);
-    const [hour, minute] = time.split(':').map(Number);
+  const scheduleDayBeforeNotification = async (
+    date: string,
+    type: string,
+    time: string,
+  ) => {
+    const [year, month, day] = date.split("-").map(Number);
+    const [hour, minute] = time.split(":").map(Number);
 
     if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) {
       return undefined;
@@ -688,9 +825,9 @@ export default function App() {
       return undefined;
     }
 
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('trash-reminders', {
-        name: 'Trash reminders',
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("trash-reminders", {
+        name: "Trash reminders",
         importance: Notifications.AndroidImportance.HIGH,
       });
     }
@@ -707,11 +844,11 @@ export default function App() {
         body: `Jutro (${date}) odbiór: ${type}`,
       },
       trigger:
-        Platform.OS === 'android'
+        Platform.OS === "android"
           ? {
               type: Notifications.SchedulableTriggerInputTypes.DATE,
               date: triggerDate,
-              channelId: 'trash-reminders',
+              channelId: "trash-reminders",
             }
           : {
               type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
@@ -727,7 +864,7 @@ export default function App() {
   };
 
   const rescheduleFutureEventNotifications = async (time: string) => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       return { updated: 0, skipped: events.length, permissionGranted: false };
     }
 
@@ -745,7 +882,11 @@ export default function App() {
     let skipped = 0;
 
     for (const item of events) {
-      const notificationId = await scheduleDayBeforeNotification(item.date, item.wasteType, time);
+      const notificationId = await scheduleDayBeforeNotification(
+        item.date,
+        item.wasteType,
+        time,
+      );
 
       if (!notificationId) {
         skipped += 1;
@@ -754,19 +895,21 @@ export default function App() {
 
       if (item.notificationId) {
         try {
-          await Notifications.cancelScheduledNotificationAsync(item.notificationId);
+          await Notifications.cancelScheduledNotificationAsync(
+            item.notificationId,
+          );
         } catch {
           // no-op
         }
       }
 
       await setDoc(
-        doc(db, 'households', currentHouseholdId, 'events', item.id),
+        doc(db, "households", currentHouseholdId, "events", item.id),
         {
           notificationId,
           updatedAt: Timestamp.now(),
         },
-        { merge: true }
+        { merge: true },
       );
 
       updatedNotificationIds[item.id] = notificationId;
@@ -777,8 +920,9 @@ export default function App() {
       setEvents((previous) =>
         previous.map((item) => ({
           ...item,
-          notificationId: updatedNotificationIds[item.id] ?? item.notificationId,
-        }))
+          notificationId:
+            updatedNotificationIds[item.id] ?? item.notificationId,
+        })),
       );
     }
 
@@ -786,33 +930,53 @@ export default function App() {
   };
 
   const onRegister = async () => {
+    setRegisterError("");
     const normalizedEmail = email.trim();
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      notify('Błąd rejestracji', 'Podaj poprawny adres email (np. jan@example.com).');
+      const msg = "Podaj poprawny adres email (np. jan@example.com).";
+      setRegisterError(msg);
+      notify("Błąd rejestracji", msg);
       return;
     }
 
     if (password.length < 6) {
-      notify('Błąd rejestracji', 'Hasło musi mieć co najmniej 6 znaków.');
+      const msg = "Hasło musi mieć co najmniej 6 znaków.";
+      setRegisterError(msg);
+      notify("Błąd rejestracji", msg);
       return;
     }
 
     if (!db) {
-      notify('Błąd', 'Firebase nie jest skonfigurowany.');
+      const msg = "Firebase nie jest skonfigurowany.";
+      setRegisterError(msg);
+      notify("Błąd", msg);
       return;
     }
 
+    // Sprawdź format kodu gospodarstwa ZANIM utworzymy konto w Firebase
+    const inputCode = normalizeCode(householdInviteCode);
+    if (inputCode && !/^[A-Z0-9]{6}$/.test(inputCode)) {
+      const msg = "Nieprawidłowy kod gospodarstwa (format: 6 znaków).";
+      setRegisterError(msg);
+      notify("Błąd rejestracji", msg);
+      return;
+    }
+
+    setIsRegistering(true);
     try {
       const credential = await registerUser(normalizedEmail, password);
       const uid = credential.user.uid;
       const registeredEmail = credential.user.email ?? normalizedEmail;
-      const inputCode = normalizeCode(householdInviteCode);
 
       let assignment: HouseholdJoinResult;
 
       if (inputCode) {
-        const joined = await joinHouseholdByCode(uid, registeredEmail, inputCode);
+        const joined = await joinHouseholdByCode(
+          uid,
+          registeredEmail,
+          inputCode,
+        );
 
         if (!joined) {
           try {
@@ -820,7 +984,9 @@ export default function App() {
           } catch {
             // no-op
           }
-          notify('Błąd rejestracji', 'Nie znaleziono gospodarstwa dla podanego kodu.');
+          const msg = "Nie znaleziono gospodarstwa dla podanego kodu.";
+          setRegisterError(msg);
+          notify("Błąd rejestracji", msg);
           return;
         }
 
@@ -829,34 +995,108 @@ export default function App() {
         assignment = await createHouseholdForUser(uid, registeredEmail);
       }
 
-      await saveUserHousehold(uid, registeredEmail, assignment.householdId, '19:00');
+      await saveUserHousehold(
+        uid,
+        registeredEmail,
+        assignment.householdId,
+        "19:00",
+      );
 
       setUserEmail(registeredEmail);
       setUserUid(uid);
       setCurrentHouseholdId(assignment.householdId);
       setHouseholdSecretCode(assignment.secretCode);
-      setNotificationTime('19:00');
-      setNotificationTimeInput('19:00');
-      setHouseholdInviteCode('');
-      await saveSessionCredentials(registeredEmail, password, credential.user.refreshToken);
+      setNotificationTime("19:00");
+      setNotificationTimeInput("19:00");
+      setHouseholdInviteCode("");
+      setRegisterError("");
+
+      // Wyświetl użytkownikowi co się stało (dołączył czy utworzono nowe)
+      if (inputCode) {
+        notify("OK", "Dołączono do istniejącego gospodarstwa.");
+      } else {
+        notify("OK", "Utworzono nowe gospodarstwo.");
+      }
+
+      await saveSessionCredentials(
+        registeredEmail,
+        password,
+        credential.user.refreshToken,
+      );
     } catch (error) {
-      notify('Błąd rejestracji', parseAuthErrorMessage(error));
+      const msg = parseAuthErrorMessage(error);
+      setRegisterError(msg);
+      notify("Błąd rejestracji", msg);
+    } finally {
+      setIsRegistering(false);
     }
   };
 
   const onLogin = async () => {
+    setLoginError("");
     const normalizedEmail = email.trim();
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      notify('Błąd logowania', 'Podaj poprawny adres email (np. jan@example.com).');
+    if (!normalizedEmail) {
+      const msg = "Podaj adres email.";
+      setLoginError(msg);
+      notify("Błąd logowania", msg);
+      emailRef.current?.focus?.();
       return;
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      const msg = "Podaj poprawny adres email (np. jan@example.com).";
+      setLoginError(msg);
+      notify("Błąd logowania", msg);
+      emailRef.current?.focus?.();
+      return;
+    }
+
+    if (!password) {
+      const msg = "Podaj hasło.";
+      setLoginError(msg);
+      notify("Błąd logowania", msg);
+      passwordRef.current?.focus?.();
+      return;
+    }
+
+    if (password.length < 6) {
+      const msg = "Hasło musi mieć co najmniej 6 znaków.";
+      setLoginError(msg);
+      notify("Błąd logowania", msg);
+      passwordRef.current?.focus?.();
+      return;
+    }
+
+    setIsLoggingIn(true);
     try {
-      const credential = await loginUser(normalizedEmail, password);
-      await saveSessionCredentials(normalizedEmail, password, credential.user.refreshToken);
-    } catch (error) {
-      notify('Błąd logowania', parseAuthErrorMessage(error));
+      try {
+        const credential = await loginUser(normalizedEmail, password);
+        await saveSessionCredentials(
+          normalizedEmail,
+          password,
+          credential.user.refreshToken,
+        );
+
+        const uid = credential.user.uid;
+        const mail = credential.user.email ?? normalizedEmail;
+
+        // Ustaw natychmiast kontekst użytkownika i odśwież gospodarstwo
+        setUserEmail(mail);
+        setUserUid(uid);
+        try {
+          await ensureUserHousehold(uid, mail);
+        } catch {
+          // silent
+        }
+      } catch (error) {
+        const msg = parseAuthErrorMessage(error);
+        setLoginError(msg);
+        notify("Błąd logowania", msg);
+        return;
+      }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -867,7 +1107,7 @@ export default function App() {
 
     isSigningOutRef.current = true;
     setCurrentHouseholdId(null);
-    setHouseholdSecretCode('');
+    setHouseholdSecretCode("");
     setEvents([]);
 
     try {
@@ -875,65 +1115,78 @@ export default function App() {
       await clearSessionCredentials();
     } catch (error) {
       isSigningOutRef.current = false;
-      const message = error instanceof Error ? error.message : 'Nie udało się wylogować.';
-      notify('Błąd', message);
+      const message =
+        error instanceof Error ? error.message : "Nie udało się wylogować.";
+      notify("Błąd", message);
     }
   };
 
   const onAddEvent = async () => {
     const normalizedDate = eventDate.trim();
     const normalizedType =
-      selectedWasteType === 'Inne' ? customWasteType.trim() : selectedWasteType.trim();
+      selectedWasteType === "Inne"
+        ? customWasteType.trim()
+        : selectedWasteType.trim();
 
     if (!normalizedDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      const message = 'Data musi mieć format YYYY-MM-DD.';
+      const message = "Data musi mieć format YYYY-MM-DD.";
       setModalError(message);
-      notify('Błąd', message);
+      notify("Błąd", message);
       return false;
     }
 
     if (!normalizedType) {
-      const message = 'Podaj typ śmieci.';
+      const message = "Podaj typ śmieci.";
       setModalError(message);
-      notify('Błąd', message);
+      notify("Błąd", message);
       return false;
     }
 
     if (!currentHouseholdId) {
-      const message = 'Brak przypisanego gospodarstwa.';
+      const message = "Brak przypisanego gospodarstwa.";
       setModalError(message);
-      notify('Błąd', message);
+      notify("Błąd", message);
       return false;
     }
 
     if (!userUid) {
-      const message = 'Brak danych użytkownika. Zaloguj się ponownie.';
+      const message = "Brak danych użytkownika. Zaloguj się ponownie.";
       setModalError(message);
-      notify('Błąd', message);
+      notify("Błąd", message);
       return false;
     }
 
     try {
       if (!db) {
-        const message = 'Firebase nie jest skonfigurowany.';
+        const message = "Firebase nie jest skonfigurowany.";
         setModalError(message);
-        notify('Błąd', message);
+        notify("Błąd", message);
         return false;
       }
 
       const hasPermission = await requestNotificationsPermission();
       const notificationId = hasPermission
-        ? await scheduleDayBeforeNotification(normalizedDate, normalizedType, notificationTime)
+        ? await scheduleDayBeforeNotification(
+            normalizedDate,
+            normalizedType,
+            notificationTime,
+          )
         : undefined;
 
       if (!hasPermission) {
-        notify('Powiadomienia', 'Brak zgody na powiadomienia. Odbiór zapisany bez przypomnienia.');
+        notify(
+          "Powiadomienia",
+          "Brak zgody na powiadomienia. Odbiór zapisany bez przypomnienia.",
+        );
       } else if (!notificationId) {
-        notify('Powiadomienia', 'Nie zaplanowano przypomnienia (termin przypomnienia już minął).');
+        notify(
+          "Powiadomienia",
+          "Nie zaplanowano przypomnienia (termin przypomnienia już minął).",
+        );
       }
 
-      const householdRef = doc(db, 'households', currentHouseholdId);
-      const eventsRef = collection(householdRef, 'events');
+      const householdRef = doc(db, "households", currentHouseholdId);
+      const eventsRef = collection(householdRef, "events");
 
       const eventPayload: {
         date: string;
@@ -975,30 +1228,36 @@ export default function App() {
         return next.sort((left, right) => left.date.localeCompare(right.date));
       });
 
-      setEventDate('');
-      setSelectedWasteType('Zmieszane');
-      setCustomWasteType('');
+      setEventDate("");
+      setSelectedWasteType("Zmieszane");
+      setCustomWasteType("");
       setIsWasteTypeDropdownOpen(false);
-      setModalError('');
+      setModalError("");
       return true;
     } catch (error) {
-      let message = error instanceof Error ? error.message : 'Nie udało się dodać wydarzenia.';
-      if (message.includes('permission-denied') || message.includes('Missing or insufficient permissions')) {
-        message = 'Brak uprawnień Firestore. Sprawdź reguły bazy.';
+      let message =
+        error instanceof Error
+          ? error.message
+          : "Nie udało się dodać wydarzenia.";
+      if (
+        message.includes("permission-denied") ||
+        message.includes("Missing or insufficient permissions")
+      ) {
+        message = "Brak uprawnień Firestore. Sprawdź reguły bazy.";
       }
 
       setModalError(message);
-      notify('Błąd', message);
+      notify("Błąd", message);
       return false;
     }
   };
 
   const onCalendarDayPress = (day: { dateString: string }) => {
     setEventDate(day.dateString);
-    setSelectedWasteType('Zmieszane');
-    setCustomWasteType('');
+    setSelectedWasteType("Zmieszane");
+    setCustomWasteType("");
     setIsWasteTypeDropdownOpen(false);
-    setModalError('');
+    setModalError("");
     setShowWasteModal(true);
   };
 
@@ -1019,18 +1278,25 @@ export default function App() {
   const onDeleteEvent = async (item: TrashEvent) => {
     try {
       if (!db || !currentHouseholdId) {
-        notify('Błąd', 'Firebase nie jest skonfigurowany.');
+        notify("Błąd", "Firebase nie jest skonfigurowany.");
         return;
       }
 
       if (item.notificationId) {
-        await Notifications.cancelScheduledNotificationAsync(item.notificationId);
+        await Notifications.cancelScheduledNotificationAsync(
+          item.notificationId,
+        );
       }
 
-      await deleteDoc(doc(db, 'households', currentHouseholdId, 'events', item.id));
+      await deleteDoc(
+        doc(db, "households", currentHouseholdId, "events", item.id),
+      );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Nie udało się usunąć wydarzenia.';
-      notify('Błąd', message);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Nie udało się usunąć wydarzenia.";
+      notify("Błąd", message);
     }
   };
 
@@ -1038,51 +1304,58 @@ export default function App() {
     const normalizedTime = notificationTimeInput.trim();
 
     if (!isValidTimeHHmm(normalizedTime)) {
-      notify('Błąd', 'Podaj godzinę w formacie HH:mm, np. 19:30');
+      notify("Błąd", "Podaj godzinę w formacie HH:mm, np. 19:30");
       return;
     }
 
     if (!db || !userUid) {
-      notify('Błąd', 'Brak danych użytkownika.');
+      notify("Błąd", "Brak danych użytkownika.");
       return;
     }
 
     try {
       setIsSavingNotificationTime(true);
       await setDoc(
-        doc(db, 'users', userUid),
+        doc(db, "users", userUid),
         {
           notificationTime: normalizedTime,
           updatedAt: Timestamp.now(),
         },
-        { merge: true }
+        { merge: true },
       );
 
       setNotificationTime(normalizedTime);
       setNotificationTimeInput(normalizedTime);
 
-      const rescheduleResult = await rescheduleFutureEventNotifications(normalizedTime);
+      const rescheduleResult =
+        await rescheduleFutureEventNotifications(normalizedTime);
 
       if (!rescheduleResult.permissionGranted) {
-        notify('Powiadomienia', 'Brak zgody na powiadomienia. Godzina zapisana, ale system nie mógł przeplanować przypomnień.');
+        notify(
+          "Powiadomienia",
+          "Brak zgody na powiadomienia. Godzina zapisana, ale system nie mógł przeplanować przypomnień.",
+        );
         return;
       }
 
       notify(
-        'OK',
-        `Godzina zapisana. Przeplanowano: ${rescheduleResult.updated}, pominięto: ${rescheduleResult.skipped}.`
+        "OK",
+        `Godzina zapisana. Przeplanowano: ${rescheduleResult.updated}, pominięto: ${rescheduleResult.skipped}.`,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Nie udało się zapisać godziny.';
-      notify('Błąd', message);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Nie udało się zapisać godziny.";
+      notify("Błąd", message);
     } finally {
       setIsSavingNotificationTime(false);
     }
   };
 
   const onSendTestNotification = async () => {
-    if (Platform.OS === 'web') {
-      notify('Info', 'Test powiadomień działa tylko na telefonie.');
+    if (Platform.OS === "web") {
+      notify("Info", "Test powiadomień działa tylko na telefonie.");
       return;
     }
 
@@ -1095,33 +1368,39 @@ export default function App() {
       const hasPermission = await requestNotificationsPermission();
 
       if (!hasPermission) {
-        notify('Powiadomienia', 'Brak zgody na powiadomienia w systemie Android.');
+        notify(
+          "Powiadomienia",
+          "Brak zgody na powiadomienia w systemie Android.",
+        );
         return;
       }
 
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('trash-reminders', {
-          name: 'Trash reminders',
+      if (Platform.OS === "android") {
+        await Notifications.setNotificationChannelAsync("trash-reminders", {
+          name: "Trash reminders",
           importance: Notifications.AndroidImportance.DEFAULT,
         });
       }
 
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: 'Test powiadomienia',
-          body: 'Powiadomienia w aplikacji działają poprawnie.',
+          title: "Test powiadomienia",
+          body: "Powiadomienia w aplikacji działają poprawnie.",
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
           seconds: 5,
-          channelId: Platform.OS === 'android' ? 'trash-reminders' : undefined,
+          channelId: Platform.OS === "android" ? "trash-reminders" : undefined,
         },
       });
 
-      notify('OK', 'Testowe powiadomienie zaplanowane za 5 sekund.');
+      notify("OK", "Testowe powiadomienie zaplanowane za 5 sekund.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Nie udało się zaplanować testu.';
-      notify('Błąd', message);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Nie udało się zaplanować testu.";
+      notify("Błąd", message);
     } finally {
       setIsSendingTestNotification(false);
     }
@@ -1134,7 +1413,9 @@ export default function App() {
         contentContainerStyle={styles.containerContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+        {/* {isDevBuild && (
+          <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+        )} */}
         <View style={styles.headerCard}>
           <Text style={styles.title}>Brak konfiguracji Firebase</Text>
           <Text style={styles.subtitle}>
@@ -1148,10 +1429,14 @@ export default function App() {
   if (!isAuthenticated && isSessionBootstrapping) {
     return (
       <View style={styles.container}>
-        <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+        {/* {isDevBuild && (
+          <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+        )} */}
         <View style={styles.headerCard}>
           <Text style={styles.title}>Przywracanie sesji...</Text>
-          <Text style={styles.subtitle}>Sprawdzam lokalny token logowania.</Text>
+          <Text style={styles.subtitle}>
+            Sprawdzam lokalny token logowania.
+          </Text>
           <View style={styles.loaderBox}>
             <ActivityIndicator size="small" color="#38bdf8" />
           </View>
@@ -1160,7 +1445,7 @@ export default function App() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || isRegistering || isLoggingIn) {
     return (
       <ScrollView
         style={styles.container}
@@ -1168,45 +1453,70 @@ export default function App() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+        {/* {isDevBuild && (
+          <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+        )} */}
         <View style={styles.headerCard}>
           <Text style={styles.title}>Śmieci App — logowanie</Text>
-          <Text style={styles.subtitle}>Zaloguj się lub załóż konto dla gospodarstwa.</Text>
+          <Text style={styles.subtitle}>
+            Zaloguj się lub załóż konto dla gospodarstwa.
+          </Text>
         </View>
 
         <View style={styles.card}>
           <TextInput
+            ref={emailRef}
             placeholder="Email"
             placeholderTextColor="#64748b"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(t) => {
+              setEmail(t);
+              setLoginError("");
+              setRegisterError("");
+            }}
             autoCapitalize="none"
             keyboardType="email-address"
             style={styles.input}
           />
           <TextInput
+            ref={passwordRef}
             placeholder="Hasło"
             placeholderTextColor="#64748b"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(t) => {
+              setPassword(t);
+              setLoginError("");
+              setRegisterError("");
+            }}
             secureTextEntry
             style={styles.input}
           />
           <TextInput
-            placeholder="Tajny kod gospodarstwa (opcjonalnie przy rejestracji)"
+            placeholder="Kod gospodarstwa (opcjonalnie przy rejestracji)"
             placeholderTextColor="#64748b"
             value={householdInviteCode}
-            onChangeText={setHouseholdInviteCode}
+            onChangeText={(t) => { setHouseholdInviteCode(t); setRegisterError(""); }}
             autoCapitalize="characters"
             style={styles.input}
           />
 
+          {loginError ? (
+            <Text style={styles.modalError}>{loginError}</Text>
+          ) : null}
+          {registerError ? (
+            <Text style={styles.modalError}>{registerError}</Text>
+          ) : null}
+
           <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.primaryButton} onPress={onLogin}>
-              <Text style={styles.primaryButtonText}>Zaloguj</Text>
+            <TouchableOpacity style={[styles.primaryButton, isLoggingIn && styles.disabledButton]} onPress={onLogin} disabled={isLoggingIn}>
+              <Text style={styles.primaryButtonText}>{isLoggingIn ? "Loguję..." : "Zaloguj"}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.secondaryButton} onPress={onRegister}>
-              <Text style={styles.secondaryButtonText}>Zarejestruj</Text>
+            <TouchableOpacity
+              style={[styles.secondaryButton, isRegistering && styles.disabledButton]}
+              onPress={onRegister}
+              disabled={isRegistering}
+            >
+              <Text style={styles.secondaryButtonText}>{isRegistering ? "Rejestruję..." : "Zarejestruj"}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1216,7 +1526,9 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+      {/* {isDevBuild && (
+        <Text style={styles.versionBadge}>{appVersionLabel}</Text>
+      )} */}
       <ScrollView
         contentContainerStyle={styles.containerContent}
         showsVerticalScrollIndicator={false}
@@ -1228,7 +1540,7 @@ export default function App() {
           >
             <Text style={styles.hamburgerIcon}>☰</Text>
           </TouchableOpacity>
-          <Text style={styles.topBarTitle}>Wspólny kalendarz śmieci</Text>
+          <Text style={styles.topBarTitle}>Kalendarz przypomnień</Text>
         </View>
 
         <View style={styles.card}>
@@ -1236,16 +1548,18 @@ export default function App() {
           <Calendar
             onDayPress={onCalendarDayPress}
             markedDates={markedDates}
+            firstDay={1}
             theme={{
-              calendarBackground: 'transparent',
-              textSectionTitleColor: '#94a3b8',
-              dayTextColor: '#e5e7eb',
-              monthTextColor: '#e5e7eb',
-              arrowColor: '#22c55e',
-              todayTextColor: '#38bdf8',
-              selectedDayTextColor: '#ffffff',
+              calendarBackground: "transparent",
+              textSectionTitleColor: "#94a3b8",
+              dayTextColor: "#e5e7eb",
+              monthTextColor: "#e5e7eb",
+              arrowColor: "#22c55e",
+              todayTextColor: "#38bdf8",
+              selectedDayTextColor: "#ffffff",
             }}
             style={styles.calendar}
+            locale="pl"
           />
 
           <Text style={styles.selectedDateLabel}>
@@ -1264,7 +1578,9 @@ export default function App() {
             <FlatList
               data={events}
               keyExtractor={(item) => item.id}
-              ListEmptyComponent={<Text style={styles.muted}>Brak wydarzeń</Text>}
+              ListEmptyComponent={
+                <Text style={styles.muted}>Brak wydarzeń</Text>
+              }
               renderItem={({ item }) => (
                 <View style={styles.eventRow}>
                   <View style={styles.eventContent}>
@@ -1300,10 +1616,16 @@ export default function App() {
 
             <TouchableOpacity
               style={styles.dropdownTrigger}
-              onPress={() => setIsWasteTypeDropdownOpen((previous) => !previous)}
+              onPress={() =>
+                setIsWasteTypeDropdownOpen((previous) => !previous)
+              }
             >
-              <Text style={styles.dropdownTriggerText}>{selectedWasteType}</Text>
-              <Text style={styles.dropdownChevron}>{isWasteTypeDropdownOpen ? '▴' : '▾'}</Text>
+              <Text style={styles.dropdownTriggerText}>
+                {selectedWasteType}
+              </Text>
+              <Text style={styles.dropdownChevron}>
+                {isWasteTypeDropdownOpen ? "▴" : "▾"}
+              </Text>
             </TouchableOpacity>
 
             {isWasteTypeDropdownOpen ? (
@@ -1314,8 +1636,8 @@ export default function App() {
                     style={styles.dropdownItem}
                     onPress={() => {
                       setSelectedWasteType(type);
-                      if (type !== 'Inne') {
-                        setCustomWasteType('');
+                      if (type !== "Inne") {
+                        setCustomWasteType("");
                       }
                       setIsWasteTypeDropdownOpen(false);
                     }}
@@ -1323,7 +1645,8 @@ export default function App() {
                     <Text
                       style={[
                         styles.dropdownItemText,
-                        selectedWasteType === type && styles.dropdownItemTextSelected,
+                        selectedWasteType === type &&
+                          styles.dropdownItemTextSelected,
                       ]}
                     >
                       {type}
@@ -1333,7 +1656,7 @@ export default function App() {
               </View>
             ) : null}
 
-            {selectedWasteType === 'Inne' ? (
+            {selectedWasteType === "Inne" ? (
               <TextInput
                 value={customWasteType}
                 onChangeText={setCustomWasteType}
@@ -1343,15 +1666,22 @@ export default function App() {
               />
             ) : null}
 
-            {modalError ? <Text style={styles.modalError}>{modalError}</Text> : null}
+            {modalError ? (
+              <Text style={styles.modalError}>{modalError}</Text>
+            ) : null}
 
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={[styles.primaryButton, isSavingEvent && styles.disabledButton]}
+                style={[
+                  styles.primaryButton,
+                  isSavingEvent && styles.disabledButton,
+                ]}
                 onPress={onConfirmWasteType}
                 disabled={isSavingEvent}
               >
-                <Text style={styles.primaryButtonText}>{isSavingEvent ? 'Zapisywanie...' : 'Zapisz'}</Text>
+                <Text style={styles.primaryButtonText}>
+                  {isSavingEvent ? "Zapisywanie..." : "Zapisz"}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.secondaryButton}
@@ -1383,14 +1713,21 @@ export default function App() {
             <Text style={styles.menuTitle}>Konto</Text>
             <View style={styles.menuUserBox}>
               <Text style={styles.menuUserLabel}>Zalogowany użytkownik</Text>
-              <Text style={styles.menuUserEmail}>{userEmail ?? 'Brak email'}</Text>
+              <Text style={styles.menuUserEmail}>
+                {userEmail ?? "Brak email"}
+              </Text>
             </View>
             <View style={styles.menuUserBox}>
-              <Text style={styles.menuUserLabel}>Tajny kod gospodarstwa</Text>
-              <Text style={styles.menuSecretCode}>{householdSecretCode || '—'}</Text>
+              <Text style={styles.menuUserLabel}>Kod gospodarstwa</Text>
+              <Text style={styles.menuSecretCode}>
+                {householdSecretCode || "—"}
+              </Text>
             </View>
+
             <View style={styles.menuUserBox}>
-              <Text style={styles.menuUserLabel}>Godzina przypomnienia (dzień wcześniej)</Text>
+              <Text style={styles.menuUserLabel}>
+                Godzina przypomnienia (dzień wcześniej)
+              </Text>
               <TextInput
                 value={notificationTimeInput}
                 onChangeText={setNotificationTimeInput}
@@ -1399,58 +1736,18 @@ export default function App() {
                 style={styles.menuInput}
               />
               <TouchableOpacity
-                style={[styles.menuSaveButton, isSavingNotificationTime && styles.disabledButton]}
+                style={[
+                  styles.menuSaveButton,
+                  isSavingNotificationTime && styles.disabledButton,
+                ]}
                 onPress={onSaveNotificationTime}
                 disabled={isSavingNotificationTime}
               >
                 <Text style={styles.menuSaveText}>
-                  {isSavingNotificationTime ? 'Zapisywanie...' : 'Zapisz godzinę'}
+                  {isSavingNotificationTime
+                    ? "Zapisywanie..."
+                    : "Zapisz godzinę"}
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.menuTestButton, isSendingTestNotification && styles.disabledButton]}
-                onPress={onSendTestNotification}
-                disabled={isSendingTestNotification}
-              >
-                <Text style={styles.menuTestText}>
-                  {isSendingTestNotification ? 'Wysyłanie testu...' : 'Wyślij test powiadomienia'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.menuUserBox}>
-              <Text style={styles.menuUserLabel}>Debug sesji (telefon)</Text>
-              <Text style={styles.menuDebugLine}>Token: {sessionDebugInfo.tokenPreview}</Text>
-              <Text style={styles.menuDebugLine}>
-                Credentials: {sessionDebugInfo.hasCredentials ? 'TAK' : 'NIE'}
-              </Text>
-              <Text style={styles.menuDebugLine}>Email local: {sessionDebugInfo.savedEmail}</Text>
-              <Text style={styles.menuDebugLine}>
-                Hasło local: {sessionDebugInfo.hasPassword ? 'TAK' : 'NIE'}
-              </Text>
-              <Text style={styles.menuDebugLine}>Firebase UID: {sessionDebugInfo.firebaseUid}</Text>
-              <Text style={styles.menuDebugLine}>Firebase email: {sessionDebugInfo.firebaseEmail}</Text>
-              <Text style={styles.menuDebugLine}>AutoLogin: {sessionDebugInfo.autoLoginStatus}</Text>
-              <Text style={styles.menuDebugLine}>Błąd: {sessionDebugInfo.autoLoginError}</Text>
-
-              <TouchableOpacity
-                style={[styles.menuDebugButton, isSessionDebugLoading && styles.disabledButton]}
-                onPress={refreshSessionDebug}
-                disabled={isSessionDebugLoading}
-              >
-                <Text style={styles.menuDebugButtonText}>
-                  {isSessionDebugLoading ? 'Odświeżanie...' : 'Odśwież debug sesji'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.menuDebugDangerButton}
-                onPress={async () => {
-                  await clearSessionCredentials();
-                  await refreshSessionDebug();
-                  notify('Debug', 'Wyczyszczono lokalną sesję.');
-                }}
-              >
-                <Text style={styles.menuDebugDangerText}>Wyczyść lokalną sesję</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity
@@ -1476,7 +1773,7 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0b1220',
+    backgroundColor: "#0b1220",
   },
   containerContent: {
     padding: 16,
@@ -1484,22 +1781,22 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   versionBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 8,
     right: 10,
     zIndex: 20,
-    color: '#94a3b8',
+    color: "#94a3b8",
     fontSize: 11,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: "rgba(15, 23, 42, 0.85)",
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     paddingHorizontal: 4,
     marginBottom: 2,
@@ -1508,230 +1805,230 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: '#1f2937',
+    backgroundColor: "#1f2937",
     borderWidth: 1,
-    borderColor: '#334155',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: "#334155",
+    alignItems: "center",
+    justifyContent: "center",
   },
   hamburgerIcon: {
-    color: '#f8fafc',
+    color: "#f8fafc",
     fontSize: 20,
     lineHeight: 22,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   topBarTitle: {
-    color: '#f8fafc',
+    color: "#f8fafc",
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: "700",
     flexShrink: 1,
   },
   headerCard: {
     padding: 16,
     borderRadius: 16,
-    backgroundColor: '#0f172a',
+    backgroundColor: "#0f172a",
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
   },
   card: {
-    backgroundColor: '#111827',
+    backgroundColor: "#111827",
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
   },
   title: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 6,
-    color: '#f8fafc',
+    color: "#f8fafc",
   },
   subtitle: {
-    color: '#94a3b8',
+    color: "#94a3b8",
     fontSize: 13,
     lineHeight: 18,
   },
   muted: {
-    color: '#94a3b8',
+    color: "#94a3b8",
   },
   sectionTitle: {
-    color: '#e5e7eb',
-    fontWeight: '600',
+    color: "#e5e7eb",
+    fontWeight: "600",
     marginBottom: 10,
   },
   calendar: {
     borderRadius: 10,
-    overflow: 'hidden',
+    overflow: "hidden",
     marginBottom: 10,
   },
   selectedDateLabel: {
-    color: '#94a3b8',
+    color: "#94a3b8",
     marginBottom: 2,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: '#0f172a',
-    color: '#e5e7eb',
+    backgroundColor: "#0f172a",
+    color: "#e5e7eb",
     marginBottom: 10,
   },
   dropdownTrigger: {
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: '#0f172a',
+    backgroundColor: "#0f172a",
     marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   dropdownTriggerText: {
-    color: '#e5e7eb',
+    color: "#e5e7eb",
     fontSize: 14,
   },
   dropdownChevron: {
-    color: '#94a3b8',
+    color: "#94a3b8",
     fontSize: 14,
     marginLeft: 10,
   },
   dropdownList: {
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
     borderRadius: 8,
     marginBottom: 10,
-    overflow: 'hidden',
-    backgroundColor: '#0b1220',
+    overflow: "hidden",
+    backgroundColor: "#0b1220",
   },
   dropdownItem: {
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#1f2937',
+    borderBottomColor: "#1f2937",
   },
   dropdownItemText: {
-    color: '#cbd5e1',
+    color: "#cbd5e1",
   },
   dropdownItemTextSelected: {
-    color: '#22c55e',
-    fontWeight: '700',
+    color: "#22c55e",
+    fontWeight: "700",
   },
   actionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: 12,
     marginBottom: 4,
   },
   primaryButton: {
     flex: 1,
-    backgroundColor: '#22c55e',
+    backgroundColor: "#22c55e",
     borderRadius: 8,
     paddingVertical: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   primaryButtonText: {
-    color: '#ffffff',
-    fontWeight: '700',
+    color: "#ffffff",
+    fontWeight: "700",
   },
   disabledButton: {
     opacity: 0.65,
   },
   secondaryButton: {
     flex: 1,
-    backgroundColor: '#1f2937',
+    backgroundColor: "#1f2937",
     borderRadius: 8,
     paddingVertical: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   secondaryButtonText: {
-    color: '#e5e7eb',
-    fontWeight: '700',
+    color: "#e5e7eb",
+    fontWeight: "700",
   },
   eventRow: {
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
     borderRadius: 8,
     padding: 12,
     marginTop: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#0f172a',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#0f172a",
   },
   eventContent: {
     flex: 1,
   },
   eventText: {
-    fontWeight: '600',
-    color: '#f8fafc',
+    fontWeight: "600",
+    color: "#f8fafc",
   },
   loaderBox: {
     paddingVertical: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
   },
   loaderText: {
-    color: '#94a3b8',
+    color: "#94a3b8",
     fontSize: 13,
   },
   deleteButton: {
-    backgroundColor: '#7f1d1d',
+    backgroundColor: "#7f1d1d",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginLeft: 10,
   },
   deleteButtonText: {
-    color: '#fecaca',
-    fontWeight: '700',
+    color: "#fecaca",
+    fontWeight: "700",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(2, 6, 23, 0.75)',
-    justifyContent: 'center',
+    backgroundColor: "rgba(2, 6, 23, 0.75)",
+    justifyContent: "center",
     padding: 20,
   },
   modalCard: {
-    backgroundColor: '#0f172a',
+    backgroundColor: "#0f172a",
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
   },
   modalTitle: {
-    color: '#f8fafc',
+    color: "#f8fafc",
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 6,
   },
   modalSubtitle: {
-    color: '#94a3b8',
+    color: "#94a3b8",
     marginBottom: 12,
   },
   modalError: {
-    color: '#fca5a5',
+    color: "#fca5a5",
     marginBottom: 8,
     fontSize: 12,
   },
   menuOverlay: {
     flex: 1,
-    flexDirection: 'row',
-    backgroundColor: 'rgba(2, 6, 23, 0.6)',
+    flexDirection: "row",
+    backgroundColor: "rgba(2, 6, 23, 0.6)",
   },
   menuBackdrop: {
     flex: 1,
   },
   menuPanel: {
-    width: '78%',
+    width: "78%",
     maxWidth: 320,
-    backgroundColor: '#0f172a',
+    backgroundColor: "#0f172a",
     borderRightWidth: 1,
-    borderRightColor: '#1f2937',
+    borderRightColor: "#1f2937",
     paddingTop: 32,
     paddingHorizontal: 16,
   },
@@ -1740,97 +2037,97 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   menuTitle: {
-    color: '#f8fafc',
+    color: "#f8fafc",
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   menuUserBox: {
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
     borderRadius: 10,
     padding: 12,
-    backgroundColor: '#111827',
+    backgroundColor: "#111827",
   },
   menuUserLabel: {
-    color: '#94a3b8',
+    color: "#94a3b8",
     fontSize: 12,
     marginBottom: 4,
   },
   menuUserEmail: {
-    color: '#f8fafc',
-    fontWeight: '600',
+    color: "#f8fafc",
+    fontWeight: "600",
   },
   menuSecretCode: {
-    color: '#22c55e',
-    fontWeight: '700',
+    color: "#22c55e",
+    fontWeight: "700",
     letterSpacing: 1,
   },
   menuInput: {
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: "#1f2937",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 9,
-    backgroundColor: '#0b1220',
-    color: '#e5e7eb',
+    backgroundColor: "#0b1220",
+    color: "#e5e7eb",
     marginBottom: 10,
   },
   menuSaveButton: {
-    backgroundColor: '#1d4ed8',
+    backgroundColor: "#1d4ed8",
     borderRadius: 8,
     paddingVertical: 10,
-    alignItems: 'center',
+    alignItems: "center",
   },
   menuSaveText: {
-    color: '#dbeafe',
-    fontWeight: '700',
+    color: "#dbeafe",
+    fontWeight: "700",
   },
   menuTestButton: {
     marginTop: 10,
-    backgroundColor: '#0f766e',
+    backgroundColor: "#0f766e",
     borderRadius: 8,
     paddingVertical: 10,
-    alignItems: 'center',
+    alignItems: "center",
   },
   menuTestText: {
-    color: '#ccfbf1',
-    fontWeight: '700',
+    color: "#ccfbf1",
+    fontWeight: "700",
   },
   menuDebugLine: {
-    color: '#cbd5e1',
+    color: "#cbd5e1",
     fontSize: 12,
     marginBottom: 4,
   },
   menuDebugButton: {
     marginTop: 8,
-    backgroundColor: '#334155',
+    backgroundColor: "#334155",
     borderRadius: 8,
     paddingVertical: 10,
-    alignItems: 'center',
+    alignItems: "center",
   },
   menuDebugButtonText: {
-    color: '#e2e8f0',
-    fontWeight: '700',
+    color: "#e2e8f0",
+    fontWeight: "700",
   },
   menuDebugDangerButton: {
     marginTop: 8,
-    backgroundColor: '#7f1d1d',
+    backgroundColor: "#7f1d1d",
     borderRadius: 8,
     paddingVertical: 10,
-    alignItems: 'center',
+    alignItems: "center",
   },
   menuDebugDangerText: {
-    color: '#fecaca',
-    fontWeight: '700',
+    color: "#fecaca",
+    fontWeight: "700",
   },
   menuLogoutButton: {
-    backgroundColor: '#7f1d1d',
+    backgroundColor: "#7f1d1d",
     borderRadius: 8,
     paddingVertical: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   menuLogoutText: {
-    color: '#fecaca',
-    fontWeight: '700',
+    color: "#fecaca",
+    fontWeight: "700",
   },
 });
