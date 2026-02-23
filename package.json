@@ -1,6 +1,6 @@
 {
   "name": "trash-reminder",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -34,6 +34,7 @@
   "devDependencies": {
     "@types/react": "~19.1.10",
     "@types/react-native": "^0.72.8",
+    "babel-preset-expo": "^54.0.10",
     "typescript": "~5.9.2"
   }
 }

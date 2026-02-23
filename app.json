@@ -2,7 +2,7 @@
   "expo": {
     "name": "Harmonogram Śmieci",
     "slug": "trash-reminder",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -23,7 +23,7 @@
         "resizeMode": "contain",
         "backgroundColor": "#0b1220"
       },
-      "buildNumber": "10"
+      "buildNumber": "11"
     },
     "android": {
       "splash": {
@@ -37,7 +37,7 @@
       },
       "edgeToEdgeEnabled": false,
       "package": "com.anonymous.trashreminder",
-      "versionCode": 10
+      "versionCode": 11
     },
     "web": {
       "favicon": "./assets/favicon.png"

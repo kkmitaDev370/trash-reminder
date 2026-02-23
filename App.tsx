@@ -86,6 +86,192 @@ LocaleConfig.locales['pl'] = {
   today: 'Dziś',
 };
 LocaleConfig.defaultLocale = 'pl';
+
+// support for two languages; polish is default
+LocaleConfig.locales['en'] = {
+  monthNames: [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ],
+  monthNamesShort: [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ],
+  dayNames: [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ],
+  dayNamesShort: [
+    'Su',
+    'Mo',
+    'Tu',
+    'We',
+    'Th',
+    'Fr',
+    'Sa',
+  ],
+  today: "Today",
+};
+
+// translation strings used throughout the UI; add more keys as needed
+const translations: Record<string, Record<string, string>> = {
+  pl: {
+    topBarTitle: 'Kalendarz przypomnień',
+    calendarSection: 'Kalendarz',
+    clickToAdd: 'Kliknij dzień w kalendarzu, aby dodać odbiór śmieci.',
+    scheduledPickups: 'Zaplanowane odbiory',
+    loadingNotifications: 'Wczytywanie powiadomień...',
+    noEvents: 'Brak wydarzeń',
+    delete: 'Usuń',
+    addTrashTitle: 'Dodaj odbiór śmieci',
+    dateLabel: 'Data: ',
+    otherPlaceholder: 'Wpisz własny rodzaj śmieci',
+    saving: 'Zapisywanie...',
+    save: 'Zapisz',
+    cancel: 'Anuluj',
+    account: 'Konto',
+    loggedInUser: 'Zalogowany użytkownik',
+    householdCode: 'Kod gospodarstwa',
+    reminderTime: 'Godzina przypomnienia (dzień wcześniej)',
+    saveTime: 'Zapisz godzinę',
+    logout: 'Wyloguj',
+    loginTitle: 'Śmieci App — logowanie',
+    loginSubtitle: 'Zaloguj się lub załóż konto dla gospodarstwa.',
+    emailPlaceholder: 'Email',
+    passwordPlaceholder: 'Hasło',
+    householdPlaceholder: 'Kod gospodarstwa (opcjonalnie przy rejestracji)',
+    timePlaceholder: 'HH:mm',
+    loggingIn: 'Loguję...',
+    login: 'Zaloguj',
+    registering: 'Rejestruję...',
+    register: 'Zarejestruj',
+    dateFormatError: 'Data musi mieć format YYYY-MM-DD.',
+    wasteTypeError: 'Podaj typ śmieci.',
+    noHouseholdError: 'Brak przypisanego gospodarstwa.',
+    noUserError: 'Brak danych użytkownika. Zaloguj się ponownie.',
+    firebaseNotConfigured: 'Firebase nie jest skonfigurowany.',
+    notificationsTitle: 'Powiadomienia',
+    noPermissionNotifications: 'Brak zgody na powiadomienia. Odbiór zapisany bez przypomnienia.',
+    registrationError: 'Błąd rejestracji',
+    loginError: 'Błąd logowania',
+    error: 'Błąd',
+    ok: 'OK',
+    joinedHousehold: 'Dołączono do istniejącego gospodarstwa.',
+    createdHousehold: 'Utworzono nowe gospodarstwo.',
+    accessDenied: 'Brak dostępu do danych gospodarstwa.',
+    invalidHouseholdCode: 'Nieprawidłowy kod gospodarstwa (format: 6 znaków).',
+    formatHHmmError: 'Podaj godzinę w formacie HH:mm, np. 19:30',
+    noPermissionReschedule: 'Brak zgody na powiadomienia. Godzina zapisana, ale system nie mógł przeplanować przypomnień.',
+    noPermissionAndroid: 'Brak zgody na powiadomienia w systemie Android.',
+    firestorePermissionError: 'Brak uprawnień Firestore. Sprawdź reguły bazy.',
+    noUserData: 'Brak danych użytkownika.',
+    noEmail: 'Brak email',
+    testNotification: 'Testowe powiadomienie zaplanowane za 5 sekund.',
+  },
+  en: {
+    topBarTitle: 'Reminder Calendar',
+    calendarSection: 'Calendar',
+    clickToAdd: 'Tap a day in the calendar to add a trash pickup.',
+    scheduledPickups: 'Scheduled pickups',
+    loadingNotifications: 'Loading notifications...',
+    noEvents: 'No events',
+    delete: 'Delete',
+    addTrashTitle: 'Add trash pickup',
+    dateLabel: 'Date: ',
+    otherPlaceholder: 'Enter custom waste type',
+    saving: 'Saving...',
+    save: 'Save',
+    cancel: 'Cancel',
+    account: 'Account',
+    loggedInUser: 'Logged-in user',
+    householdCode: 'Household code',
+    reminderTime: 'Reminder time (day before)',
+    saveTime: 'Save time',
+    logout: 'Log out',
+    loginTitle: 'Trash App — login',
+    loginSubtitle: 'Log in or register an account for your household.',
+    emailPlaceholder: 'Email',
+    passwordPlaceholder: 'Password',
+    householdPlaceholder: 'Household code (optional when registering)',
+    timePlaceholder: 'HH:mm',
+    loggingIn: 'Logging in...',
+    login: 'Log in',
+    registering: 'Registering...',
+    register: 'Register',
+    dateFormatError: 'Date must be in YYYY-MM-DD format.',
+    wasteTypeError: 'Please provide a waste type.',
+    noHouseholdError: 'No household assigned.',
+    noUserError: 'No user data. Please log in again.',
+    firebaseNotConfigured: 'Firebase is not configured.',
+    notificationsTitle: 'Notifications',
+    noPermissionNotifications: 'No permission for notifications. Event saved without reminder.',
+    registrationError: 'Registration error',
+    loginError: 'Login error',
+    error: 'Error',
+    ok: 'OK',
+    joinedHousehold: 'Joined existing household.',
+    createdHousehold: 'Created new household.',
+    accessDenied: 'No access to household data.',
+    invalidHouseholdCode: 'Invalid household code (format: 6 characters).',
+    formatHHmmError: 'Provide time in HH:mm format e.g. 19:30',
+    noPermissionReschedule: 'No permission for notifications. Time saved but system couldn\'t reschedule reminders.',
+    noPermissionAndroid: 'No permission for notifications on Android system.',
+    firestorePermissionError: 'No Firestore permissions. Check your rules.',
+    noUserData: 'No user data.',
+    noEmail: 'No email',
+    testNotification: 'Test notification scheduled for 5 seconds.',
+  },
+};
+
+// list of popular waste types in both languages
+const WASTE_TYPES: Record<string, string[]> = {
+  pl: [
+    "Zmieszane",
+    "Plastik i metal",
+    "Papier",
+    "Szkło",
+    "Bio",
+    "Gabaryty",
+    "Elektroodpady",
+    "Inne",
+  ],
+  en: [
+    "Mixed",
+    "Plastic & metal",
+    "Paper",
+    "Glass",
+    "Bio",
+    "Bulky",
+    "E-waste",
+    "Other",
+  ],
+};
+
 import {
   auth,
   db,
@@ -126,16 +312,7 @@ const createSecretCode = () =>
 const isValidTimeHHmm = (value: string) =>
   /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
 
-const POPULAR_WASTE_TYPES = [
-  "Zmieszane",
-  "Plastik i metal",
-  "Papier",
-  "Szkło",
-  "Bio",
-  "Gabaryty",
-  "Elektroodpady",
-  "Inne",
-];
+
 
 const MIXED_WASTE_DAY_COLOR = "#7c3aed";
 const SESSION_CREDENTIALS_KEY = "trash_reminder_session_credentials_v1";
@@ -144,14 +321,23 @@ const SESSION_TOKEN_KEY = "trash_reminder_session_token_v1";
 const getWasteTypeColor = (wasteType: string) => {
   const normalized = wasteType.trim().toLowerCase();
 
-  if (normalized.includes("zmiesz")) return "#475569";
-  if (normalized.includes("plastik") || normalized.includes("metal"))
+  if (normalized.includes("zmiesz") || normalized.includes("mixed")) return "#475569";
+  if (
+    normalized.includes("plastik") ||
+    normalized.includes("metal") ||
+    normalized.includes("plastic")
+  )
     return "#f59e0b";
-  if (normalized.includes("papier")) return "#3b82f6";
-  if (normalized.includes("szk")) return "#14b8a6";
+  if (normalized.includes("papier") || normalized.includes("paper")) return "#3b82f6";
+  if (normalized.includes("szk") || normalized.includes("glass")) return "#14b8a6";
   if (normalized.includes("bio")) return "#16a34a";
-  if (normalized.includes("gabary")) return "#a855f7";
-  if (normalized.includes("elektro")) return "#ef4444";
+  if (normalized.includes("gabary") || normalized.includes("bulky")) return "#a855f7";
+  if (
+    normalized.includes("elektro") ||
+    normalized.includes("e-waste") ||
+    normalized.includes("ewaste")
+  )
+    return "#ef4444";
 
   return "#6366f1";
 };
@@ -172,6 +358,16 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState("");
 
+  // language selector (default Polish)
+  const [language, setLanguage] = useState<'pl' | 'en'>('pl');
+
+  // translation helper that reads from dictionary above
+  const t = (key: string) => {
+    return (
+      translations[language]?.[key] ?? translations['pl'][key] ?? key
+    );
+  };
+
   const emailRef = useRef<any>(null);
   const passwordRef = useRef<any>(null);
 
@@ -190,8 +386,23 @@ export default function App() {
   const [householdSecretCode, setHouseholdSecretCode] = useState<string>("");
 
   const [eventDate, setEventDate] = useState("");
-  const [selectedWasteType, setSelectedWasteType] = useState("Zmieszane");
+  const [selectedWasteType, setSelectedWasteType] = useState(
+    () => WASTE_TYPES['pl'][0]
+  );
   const [customWasteType, setCustomWasteType] = useState("");
+
+  // label for the "other" choice in the dropdown
+  const OTHER_WASTE_LABEL = language === 'pl' ? 'Inne' : 'Other';
+
+  // when language changes reset selected waste type to first option
+  useEffect(() => {
+    setSelectedWasteType(WASTE_TYPES[language][0]);
+  }, [language]);
+
+  // keep calendar locale in sync
+  useEffect(() => {
+    LocaleConfig.defaultLocale = language;
+  }, [language]);
   const [isWasteTypeDropdownOpen, setIsWasteTypeDropdownOpen] = useState(false);
   const [showWasteModal, setShowWasteModal] = useState(false);
   const [modalError, setModalError] = useState("");
@@ -772,7 +983,7 @@ export default function App() {
               return;
             }
 
-            notify("Błąd", "Brak dostępu do danych gospodarstwa.");
+            notify(t('error'), t('accessDenied'));
           },
         );
       } catch (error) {
@@ -838,10 +1049,20 @@ export default function App() {
     const triggerHour = triggerDate.getHours();
     const triggerMinute = triggerDate.getMinutes();
 
+    // build messages according to selected language
+    const title =
+      language === 'pl'
+        ? `Jutro odbiór: ${type}`
+        : `Tomorrow pickup: ${type}`;
+    const body =
+      language === 'pl'
+        ? `Jutro (${date}) odbiór: ${type}`
+        : `Tomorrow (${date}) pickup: ${type}`;
+
     return Notifications.scheduleNotificationAsync({
       content: {
-        title: `Jutro odbiór: ${type}`,
-        body: `Jutro (${date}) odbiór: ${type}`,
+        title,
+        body,
       },
       trigger:
         Platform.OS === "android"
@@ -936,21 +1157,21 @@ export default function App() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       const msg = "Podaj poprawny adres email (np. jan@example.com).";
       setRegisterError(msg);
-      notify("Błąd rejestracji", msg);
+      notify(t('registrationError'), msg);
       return;
     }
 
     if (password.length < 6) {
       const msg = "Hasło musi mieć co najmniej 6 znaków.";
       setRegisterError(msg);
-      notify("Błąd rejestracji", msg);
+      notify(t('registrationError'), msg);
       return;
     }
 
     if (!db) {
       const msg = "Firebase nie jest skonfigurowany.";
       setRegisterError(msg);
-      notify("Błąd", msg);
+      notify(t('error'), msg);
       return;
     }
 
@@ -959,7 +1180,7 @@ export default function App() {
     if (inputCode && !/^[A-Z0-9]{6}$/.test(inputCode)) {
       const msg = "Nieprawidłowy kod gospodarstwa (format: 6 znaków).";
       setRegisterError(msg);
-      notify("Błąd rejestracji", msg);
+      notify(t('registrationError'), msg);
       return;
     }
 
@@ -986,7 +1207,7 @@ export default function App() {
           }
           const msg = "Nie znaleziono gospodarstwa dla podanego kodu.";
           setRegisterError(msg);
-          notify("Błąd rejestracji", msg);
+          notify(t('registrationError'), msg);
           return;
         }
 
@@ -1013,9 +1234,9 @@ export default function App() {
 
       // Wyświetl użytkownikowi co się stało (dołączył czy utworzono nowe)
       if (inputCode) {
-        notify("OK", "Dołączono do istniejącego gospodarstwa.");
+        notify(t('ok'), t('joinedHousehold'));
       } else {
-        notify("OK", "Utworzono nowe gospodarstwo.");
+        notify(t('ok'), t('createdHousehold'));
       }
 
       await saveSessionCredentials(
@@ -1026,7 +1247,7 @@ export default function App() {
     } catch (error) {
       const msg = parseAuthErrorMessage(error);
       setRegisterError(msg);
-      notify("Błąd rejestracji", msg);
+      notify(t('registrationError'), msg);
     } finally {
       setIsRegistering(false);
     }
@@ -1039,7 +1260,7 @@ export default function App() {
     if (!normalizedEmail) {
       const msg = "Podaj adres email.";
       setLoginError(msg);
-      notify("Błąd logowania", msg);
+      notify(t('loginError'), msg);
       emailRef.current?.focus?.();
       return;
     }
@@ -1047,7 +1268,7 @@ export default function App() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       const msg = "Podaj poprawny adres email (np. jan@example.com).";
       setLoginError(msg);
-      notify("Błąd logowania", msg);
+      notify(t('loginError'), msg);
       emailRef.current?.focus?.();
       return;
     }
@@ -1055,7 +1276,7 @@ export default function App() {
     if (!password) {
       const msg = "Podaj hasło.";
       setLoginError(msg);
-      notify("Błąd logowania", msg);
+      notify(t('loginError'), msg);
       passwordRef.current?.focus?.();
       return;
     }
@@ -1063,7 +1284,7 @@ export default function App() {
     if (password.length < 6) {
       const msg = "Hasło musi mieć co najmniej 6 znaków.";
       setLoginError(msg);
-      notify("Błąd logowania", msg);
+      notify(t('loginError'), msg);
       passwordRef.current?.focus?.();
       return;
     }
@@ -1124,43 +1345,43 @@ export default function App() {
   const onAddEvent = async () => {
     const normalizedDate = eventDate.trim();
     const normalizedType =
-      selectedWasteType === "Inne"
+      selectedWasteType === OTHER_WASTE_LABEL
         ? customWasteType.trim()
         : selectedWasteType.trim();
 
     if (!normalizedDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      const message = "Data musi mieć format YYYY-MM-DD.";
+      const message = t('dateFormatError');
       setModalError(message);
-      notify("Błąd", message);
+      notify(t('error'), message);
       return false;
     }
 
     if (!normalizedType) {
-      const message = "Podaj typ śmieci.";
+      const message = t('wasteTypeError');
       setModalError(message);
-      notify("Błąd", message);
+      notify(t('error'), message);
       return false;
     }
 
     if (!currentHouseholdId) {
-      const message = "Brak przypisanego gospodarstwa.";
+      const message = t('noHouseholdError');
       setModalError(message);
-      notify("Błąd", message);
+      notify(t('error'), message);
       return false;
     }
 
     if (!userUid) {
-      const message = "Brak danych użytkownika. Zaloguj się ponownie.";
+      const message = t('noUserError');
       setModalError(message);
-      notify("Błąd", message);
+      notify(t('error'), message);
       return false;
     }
 
     try {
       if (!db) {
-        const message = "Firebase nie jest skonfigurowany.";
+        const message = t('firebaseNotConfigured');
         setModalError(message);
-        notify("Błąd", message);
+        notify(t('error'), message);
         return false;
       }
 
@@ -1175,8 +1396,8 @@ export default function App() {
 
       if (!hasPermission) {
         notify(
-          "Powiadomienia",
-          "Brak zgody na powiadomienia. Odbiór zapisany bez przypomnienia.",
+          t('notificationsTitle'),
+          t('noPermissionNotifications'),
         );
       } else if (!notificationId) {
         notify(
@@ -1229,7 +1450,7 @@ export default function App() {
       });
 
       setEventDate("");
-      setSelectedWasteType("Zmieszane");
+      setSelectedWasteType(WASTE_TYPES[language][0]);
       setCustomWasteType("");
       setIsWasteTypeDropdownOpen(false);
       setModalError("");
@@ -1243,7 +1464,7 @@ export default function App() {
         message.includes("permission-denied") ||
         message.includes("Missing or insufficient permissions")
       ) {
-        message = "Brak uprawnień Firestore. Sprawdź reguły bazy.";
+        message = t('firestorePermissionError');
       }
 
       setModalError(message);
@@ -1254,7 +1475,7 @@ export default function App() {
 
   const onCalendarDayPress = (day: { dateString: string }) => {
     setEventDate(day.dateString);
-    setSelectedWasteType("Zmieszane");
+    setSelectedWasteType(WASTE_TYPES[language][0]);
     setCustomWasteType("");
     setIsWasteTypeDropdownOpen(false);
     setModalError("");
@@ -1278,7 +1499,7 @@ export default function App() {
   const onDeleteEvent = async (item: TrashEvent) => {
     try {
       if (!db || !currentHouseholdId) {
-        notify("Błąd", "Firebase nie jest skonfigurowany.");
+        notify(t('error'), t('firebaseNotConfigured'));
         return;
       }
 
@@ -1304,12 +1525,12 @@ export default function App() {
     const normalizedTime = notificationTimeInput.trim();
 
     if (!isValidTimeHHmm(normalizedTime)) {
-      notify("Błąd", "Podaj godzinę w formacie HH:mm, np. 19:30");
+      notify(t('error'), t('formatHHmmError'));
       return;
     }
 
     if (!db || !userUid) {
-      notify("Błąd", "Brak danych użytkownika.");
+      notify(t('error'), t('noUserData'));
       return;
     }
 
@@ -1333,7 +1554,7 @@ export default function App() {
       if (!rescheduleResult.permissionGranted) {
         notify(
           "Powiadomienia",
-          "Brak zgody na powiadomienia. Godzina zapisana, ale system nie mógł przeplanować przypomnień.",
+          t('noPermissionReschedule'),
         );
         return;
       }
@@ -1370,7 +1591,7 @@ export default function App() {
       if (!hasPermission) {
         notify(
           "Powiadomienia",
-          "Brak zgody na powiadomienia w systemie Android.",
+          t('noPermissionAndroid'),
         );
         return;
       }
@@ -1394,7 +1615,7 @@ export default function App() {
         },
       });
 
-      notify("OK", "Testowe powiadomienie zaplanowane za 5 sekund.");
+      notify(t('ok'), t('testNotification'));
     } catch (error) {
       const message =
         error instanceof Error
@@ -1456,17 +1677,41 @@ export default function App() {
         {/* {isDevBuild && (
           <Text style={styles.versionBadge}>{appVersionLabel}</Text>
         )} */}
-        <View style={styles.headerCard}>
-          <Text style={styles.title}>Śmieci App — logowanie</Text>
+        <View style={[styles.headerCard, { position: 'relative' }]} pointerEvents="box-none">  
+          {/* language switch added to login header */}
+          <View style={styles.langSwitchLogin} pointerEvents="auto">
+            <TouchableOpacity onPress={() => setLanguage('pl')}>
+              <Text
+                style={[
+                  styles.langOption,
+                  language === 'pl' && styles.langOptionSelected,
+                ]}
+              >
+                PL
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setLanguage('en')}>
+              <Text
+                style={[
+                  styles.langOption,
+                  language === 'en' && styles.langOptionSelected,
+                ]}
+              >
+                EN
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.title}>{t('loginTitle')}</Text>
           <Text style={styles.subtitle}>
-            Zaloguj się lub załóż konto dla gospodarstwa.
+            {t('loginSubtitle')}
           </Text>
         </View>
 
         <View style={styles.card}>
           <TextInput
             ref={emailRef}
-            placeholder="Email"
+            placeholder={t('emailPlaceholder')}
             placeholderTextColor="#64748b"
             value={email}
             onChangeText={(t) => {
@@ -1480,7 +1725,7 @@ export default function App() {
           />
           <TextInput
             ref={passwordRef}
-            placeholder="Hasło"
+            placeholder={t('passwordPlaceholder')}
             placeholderTextColor="#64748b"
             value={password}
             onChangeText={(t) => {
@@ -1492,7 +1737,7 @@ export default function App() {
             style={styles.input}
           />
           <TextInput
-            placeholder="Kod gospodarstwa (opcjonalnie przy rejestracji)"
+            placeholder={t('householdPlaceholder')}
             placeholderTextColor="#64748b"
             value={householdInviteCode}
             onChangeText={(t) => { setHouseholdInviteCode(t); setRegisterError(""); }}
@@ -1509,14 +1754,14 @@ export default function App() {
 
           <View style={styles.actionRow}>
             <TouchableOpacity style={[styles.primaryButton, isLoggingIn && styles.disabledButton]} onPress={onLogin} disabled={isLoggingIn}>
-              <Text style={styles.primaryButtonText}>{isLoggingIn ? "Loguję..." : "Zaloguj"}</Text>
+              <Text style={styles.primaryButtonText}>{isLoggingIn ? t('loggingIn') : t('login')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.secondaryButton, isRegistering && styles.disabledButton]}
               onPress={onRegister}
               disabled={isRegistering}
             >
-              <Text style={styles.secondaryButtonText}>{isRegistering ? "Rejestruję..." : "Zarejestruj"}</Text>
+              <Text style={styles.secondaryButtonText}>{isRegistering ? t('registering') : t('register')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1540,11 +1785,33 @@ export default function App() {
           >
             <Text style={styles.hamburgerIcon}>☰</Text>
           </TouchableOpacity>
-          <Text style={styles.topBarTitle}>Kalendarz przypomnień</Text>
+          <Text style={styles.topBarTitle}>{t('topBarTitle')}</Text>
+          <View style={styles.langSwitch}>
+            <TouchableOpacity onPress={() => setLanguage('pl')}>
+              <Text
+                style={[
+                  styles.langOption,
+                  language === 'pl' && styles.langOptionSelected,
+                ]}
+              >
+                PL
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setLanguage('en')}>
+              <Text
+                style={[
+                  styles.langOption,
+                  language === 'en' && styles.langOptionSelected,
+                ]}
+              >
+                EN
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Kalendarz</Text>
+          <Text style={styles.sectionTitle}>{t('calendarSection')}</Text>
           <Calendar
             onDayPress={onCalendarDayPress}
             markedDates={markedDates}
@@ -1559,27 +1826,27 @@ export default function App() {
               selectedDayTextColor: "#ffffff",
             }}
             style={styles.calendar}
-            locale="pl"
+            locale={language}
           />
 
           <Text style={styles.selectedDateLabel}>
-            Kliknij dzień w kalendarzu, aby dodać odbiór śmieci.
+            {t('clickToAdd')}
           </Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Zaplanowane odbiory</Text>
+          <Text style={styles.sectionTitle}>{t('scheduledPickups')}</Text>
           {isEventsLoading ? (
             <View style={styles.loaderBox}>
               <ActivityIndicator size="small" color="#38bdf8" />
-              <Text style={styles.loaderText}>Wczytywanie powiadomień...</Text>
+              <Text style={styles.loaderText}>{t('loadingNotifications')}</Text>
             </View>
           ) : (
             <FlatList
               data={events}
               keyExtractor={(item) => item.id}
               ListEmptyComponent={
-                <Text style={styles.muted}>Brak wydarzeń</Text>
+                <Text style={styles.muted}>{t('noEvents')}</Text>
               }
               renderItem={({ item }) => (
                 <View style={styles.eventRow}>
@@ -1591,7 +1858,7 @@ export default function App() {
                     style={styles.deleteButton}
                     onPress={() => onDeleteEvent(item)}
                   >
-                    <Text style={styles.deleteButtonText}>Usuń</Text>
+                    <Text style={styles.deleteButtonText}>{t('delete')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1611,8 +1878,10 @@ export default function App() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Dodaj odbiór śmieci</Text>
-            <Text style={styles.modalSubtitle}>Data: {eventDate}</Text>
+            <Text style={styles.modalTitle}>{t('addTrashTitle')}</Text>
+            <Text style={styles.modalSubtitle}>
+              {t('dateLabel')}{eventDate}
+            </Text>
 
             <TouchableOpacity
               style={styles.dropdownTrigger}
@@ -1630,13 +1899,13 @@ export default function App() {
 
             {isWasteTypeDropdownOpen ? (
               <View style={styles.dropdownList}>
-                {POPULAR_WASTE_TYPES.map((type) => (
+                {WASTE_TYPES[language].map((type) => (
                   <TouchableOpacity
                     key={type}
                     style={styles.dropdownItem}
                     onPress={() => {
                       setSelectedWasteType(type);
-                      if (type !== "Inne") {
+                      if (type !== OTHER_WASTE_LABEL) {
                         setCustomWasteType("");
                       }
                       setIsWasteTypeDropdownOpen(false);
@@ -1656,11 +1925,11 @@ export default function App() {
               </View>
             ) : null}
 
-            {selectedWasteType === "Inne" ? (
+            {selectedWasteType === OTHER_WASTE_LABEL ? (
               <TextInput
                 value={customWasteType}
                 onChangeText={setCustomWasteType}
-                placeholder="Wpisz własny rodzaj śmieci"
+                placeholder={t('otherPlaceholder')}
                 placeholderTextColor="#64748b"
                 style={styles.input}
               />
@@ -1680,7 +1949,7 @@ export default function App() {
                 disabled={isSavingEvent}
               >
                 <Text style={styles.primaryButtonText}>
-                  {isSavingEvent ? "Zapisywanie..." : "Zapisz"}
+                  {isSavingEvent ? t('saving') : t('save')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1690,7 +1959,7 @@ export default function App() {
                   setIsWasteTypeDropdownOpen(false);
                 }}
               >
-                <Text style={styles.secondaryButtonText}>Anuluj</Text>
+                <Text style={styles.secondaryButtonText}>{t('cancel')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1710,15 +1979,15 @@ export default function App() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.menuTitle}>Konto</Text>
+            <Text style={styles.menuTitle}>{t('account')}</Text>
             <View style={styles.menuUserBox}>
-              <Text style={styles.menuUserLabel}>Zalogowany użytkownik</Text>
+              <Text style={styles.menuUserLabel}>{t('loggedInUser')}</Text>
               <Text style={styles.menuUserEmail}>
-                {userEmail ?? "Brak email"}
+                {userEmail ?? t('noEmail')}
               </Text>
             </View>
             <View style={styles.menuUserBox}>
-              <Text style={styles.menuUserLabel}>Kod gospodarstwa</Text>
+              <Text style={styles.menuUserLabel}>{t('householdCode')}</Text>
               <Text style={styles.menuSecretCode}>
                 {householdSecretCode || "—"}
               </Text>
@@ -1726,12 +1995,12 @@ export default function App() {
 
             <View style={styles.menuUserBox}>
               <Text style={styles.menuUserLabel}>
-                Godzina przypomnienia (dzień wcześniej)
+                {t('reminderTime')}
               </Text>
               <TextInput
                 value={notificationTimeInput}
                 onChangeText={setNotificationTimeInput}
-                placeholder="HH:mm"
+                placeholder={t('timePlaceholder')}
                 placeholderTextColor="#64748b"
                 style={styles.menuInput}
               />
@@ -1745,8 +2014,8 @@ export default function App() {
               >
                 <Text style={styles.menuSaveText}>
                   {isSavingNotificationTime
-                    ? "Zapisywanie..."
-                    : "Zapisz godzinę"}
+                    ? t('saving')
+                    : t('saveTime')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1757,7 +2026,7 @@ export default function App() {
                 await onLogout();
               }}
             >
-              <Text style={styles.menuLogoutText}>Wyloguj</Text>
+              <Text style={styles.menuLogoutText}>{t('logout')}</Text>
             </TouchableOpacity>
           </ScrollView>
           <TouchableOpacity
@@ -1800,6 +2069,29 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 4,
     marginBottom: 2,
+  },
+  langSwitch: {
+    flexDirection: "row",
+    gap: 6,
+    marginLeft: "auto",
+  },
+  langSwitchLogin: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    flexDirection: 'row',
+    gap: 6,
+    zIndex: 20,          // ensure on top for touch
+  },
+  langOption: {
+    color: "#94a3b8",
+    fontWeight: "600",
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  langOptionSelected: {
+    color: "#f8fafc",
+    textDecorationLine: "underline",
   },
   hamburgerButton: {
     width: 40,
