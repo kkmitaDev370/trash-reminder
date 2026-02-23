@@ -185,6 +185,10 @@ const translations: Record<string, Record<string, string>> = {
     createdHousehold: 'Utworzono nowe gospodarstwo.',
     accessDenied: 'Brak dostępu do danych gospodarstwa.',
     invalidHouseholdCode: 'Nieprawidłowy kod gospodarstwa (format: 6 znaków).',
+    enterEmail: 'Podaj adres email.',
+    enterValidEmail: 'Podaj poprawny adres email (np. jan@example.com).',
+    enterPassword: 'Podaj hasło.',
+    passwordTooShort: 'Hasło musi mieć co najmniej 6 znaków.',
     formatHHmmError: 'Podaj godzinę w formacie HH:mm, np. 19:30',
     noPermissionReschedule: 'Brak zgody na powiadomienia. Godzina zapisana, ale system nie mógł przeplanować przypomnień.',
     noPermissionAndroid: 'Brak zgody na powiadomienia w systemie Android.',
@@ -238,6 +242,10 @@ const translations: Record<string, Record<string, string>> = {
     createdHousehold: 'Created new household.',
     accessDenied: 'No access to household data.',
     invalidHouseholdCode: 'Invalid household code (format: 6 characters).',
+    enterEmail: 'Please provide an email.',
+    enterValidEmail: 'Please provide a valid email (e.g. john@example.com).',
+    enterPassword: 'Please provide a password.',
+    passwordTooShort: 'Password must be at least 6 characters.',
     formatHHmmError: 'Provide time in HH:mm format e.g. 19:30',
     noPermissionReschedule: 'No permission for notifications. Time saved but system couldn\'t reschedule reminders.',
     noPermissionAndroid: 'No permission for notifications on Android system.',
@@ -1155,21 +1163,21 @@ export default function App() {
     const normalizedEmail = email.trim();
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      const msg = "Podaj poprawny adres email (np. jan@example.com).";
+      const msg = t('enterValidEmail');
       setRegisterError(msg);
       notify(t('registrationError'), msg);
       return;
     }
 
     if (password.length < 6) {
-      const msg = "Hasło musi mieć co najmniej 6 znaków.";
+      const msg = t('passwordTooShort');
       setRegisterError(msg);
       notify(t('registrationError'), msg);
       return;
     }
 
     if (!db) {
-      const msg = "Firebase nie jest skonfigurowany.";
+      const msg = t('firebaseNotConfigured');
       setRegisterError(msg);
       notify(t('error'), msg);
       return;
@@ -1178,7 +1186,7 @@ export default function App() {
     // Sprawdź format kodu gospodarstwa ZANIM utworzymy konto w Firebase
     const inputCode = normalizeCode(householdInviteCode);
     if (inputCode && !/^[A-Z0-9]{6}$/.test(inputCode)) {
-      const msg = "Nieprawidłowy kod gospodarstwa (format: 6 znaków).";
+      const msg = t('invalidHouseholdCode');
       setRegisterError(msg);
       notify(t('registrationError'), msg);
       return;
@@ -1258,7 +1266,7 @@ export default function App() {
     const normalizedEmail = email.trim();
 
     if (!normalizedEmail) {
-      const msg = "Podaj adres email.";
+      const msg = t('enterEmail');
       setLoginError(msg);
       notify(t('loginError'), msg);
       emailRef.current?.focus?.();
@@ -1266,7 +1274,7 @@ export default function App() {
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      const msg = "Podaj poprawny adres email (np. jan@example.com).";
+      const msg = t('enterValidEmail');
       setLoginError(msg);
       notify(t('loginError'), msg);
       emailRef.current?.focus?.();
@@ -1274,7 +1282,7 @@ export default function App() {
     }
 
     if (!password) {
-      const msg = "Podaj hasło.";
+      const msg = t('enterPassword');
       setLoginError(msg);
       notify(t('loginError'), msg);
       passwordRef.current?.focus?.();
@@ -1282,7 +1290,7 @@ export default function App() {
     }
 
     if (password.length < 6) {
-      const msg = "Hasło musi mieć co najmniej 6 znaków.";
+      const msg = t('passwordTooShort');
       setLoginError(msg);
       notify(t('loginError'), msg);
       passwordRef.current?.focus?.();
