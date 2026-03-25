@@ -28,6 +28,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyClOsqBQy2eDjd1C0PG6BAbzVOn4aJVCmA",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "trash-reminder-app-8e957.firebaseapp.com",

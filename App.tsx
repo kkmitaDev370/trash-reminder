@@ -34,251 +34,13 @@ import * as Notifications from "expo-notifications";
 import * as Application from "expo-application";
 import Constants from "expo-constants";
 import * as Updates from "expo-updates";
+import { translations, WASTE_TYPES, localeData } from './translations';
 import { Calendar, LocaleConfig } from "react-native-calendars";
-// Ustawienia polskiej lokalizacji dla kalendarza
-LocaleConfig.locales['pl'] = {
-  monthNames: [
-    'Styczeń',
-    'Luty',
-    'Marzec',
-    'Kwiecień',
-    'Maj',
-    'Czerwiec',
-    'Lipiec',
-    'Sierpień',
-    'Wrzesień',
-    'Październik',
-    'Listopad',
-    'Grudzień',
-  ],
-  monthNamesShort: [
-    'Sty',
-    'Lut',
-    'Mar',
-    'Kwi',
-    'Maj',
-    'Cze',
-    'Lip',
-    'Sie',
-    'Wrz',
-    'Paź',
-    'Lis',
-    'Gru',
-  ],
-  dayNames: [
-    'Niedziela',
-    'Poniedziałek',
-    'Wtorek',
-    'Środa',
-    'Czwartek',
-    'Piątek',
-    'Sobota',
-  ],
-  dayNamesShort: [
-    'Nd',
-    'Pn',
-    'Wt',
-    'Śr',
-    'Cz',
-    'Pt',
-    'Sb',
-  ],
-  today: 'Dziś',
-};
+
+// apply calendar locale data from translations file
+LocaleConfig.locales['pl'] = localeData.pl;
+LocaleConfig.locales['en'] = localeData.en;
 LocaleConfig.defaultLocale = 'pl';
-
-// support for two languages; polish is default
-LocaleConfig.locales['en'] = {
-  monthNames: [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ],
-  monthNamesShort: [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ],
-  dayNames: [
-    'Sunday',
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-  ],
-  dayNamesShort: [
-    'Su',
-    'Mo',
-    'Tu',
-    'We',
-    'Th',
-    'Fr',
-    'Sa',
-  ],
-  today: "Today",
-};
-
-// translation strings used throughout the UI; add more keys as needed
-const translations: Record<string, Record<string, string>> = {
-  pl: {
-    topBarTitle: 'Kalendarz przypomnień',
-    calendarSection: 'Kalendarz',
-    clickToAdd: 'Kliknij dzień w kalendarzu, aby dodać odbiór śmieci.',
-    scheduledPickups: 'Zaplanowane odbiory',
-    loadingNotifications: 'Wczytywanie powiadomień...',
-    noEvents: 'Brak wydarzeń',
-    delete: 'Usuń',
-    addTrashTitle: 'Dodaj odbiór śmieci',
-    dateLabel: 'Data: ',
-    otherPlaceholder: 'Wpisz własny rodzaj śmieci',
-    saving: 'Zapisywanie...',
-    save: 'Zapisz',
-    cancel: 'Anuluj',
-    account: 'Konto',
-    loggedInUser: 'Zalogowany użytkownik',
-    householdCode: 'Kod gospodarstwa',
-    reminderTime: 'Godzina przypomnienia (dzień wcześniej)',
-    saveTime: 'Zapisz godzinę',
-    logout: 'Wyloguj',
-    loginTitle: 'Śmieci App — logowanie',
-    loginSubtitle: 'Zaloguj się lub załóż konto dla gospodarstwa.',
-    emailPlaceholder: 'Email',
-    passwordPlaceholder: 'Hasło',
-    householdPlaceholder: 'Kod gospodarstwa (opcjonalnie przy rejestracji)',
-    timePlaceholder: 'HH:mm',
-    loggingIn: 'Loguję...',
-    login: 'Zaloguj',
-    registering: 'Rejestruję...',
-    register: 'Zarejestruj',
-    dateFormatError: 'Data musi mieć format YYYY-MM-DD.',
-    wasteTypeError: 'Podaj typ śmieci.',
-    noHouseholdError: 'Brak przypisanego gospodarstwa.',
-    noUserError: 'Brak danych użytkownika. Zaloguj się ponownie.',
-    firebaseNotConfigured: 'Firebase nie jest skonfigurowany.',
-    notificationsTitle: 'Powiadomienia',
-    noPermissionNotifications: 'Brak zgody na powiadomienia. Odbiór zapisany bez przypomnienia.',
-    registrationError: 'Błąd rejestracji',
-    loginError: 'Błąd logowania',
-    error: 'Błąd',
-    ok: 'OK',
-    joinedHousehold: 'Dołączono do istniejącego gospodarstwa.',
-    createdHousehold: 'Utworzono nowe gospodarstwo.',
-    accessDenied: 'Brak dostępu do danych gospodarstwa.',
-    invalidHouseholdCode: 'Nieprawidłowy kod gospodarstwa (format: 6 znaków).',
-    enterEmail: 'Podaj adres email.',
-    enterValidEmail: 'Podaj poprawny adres email (np. jan@example.com).',
-    enterPassword: 'Podaj hasło.',
-    passwordTooShort: 'Hasło musi mieć co najmniej 6 znaków.',
-    formatHHmmError: 'Podaj godzinę w formacie HH:mm, np. 19:30',
-    noPermissionReschedule: 'Brak zgody na powiadomienia. Godzina zapisana, ale system nie mógł przeplanować przypomnień.',
-    noPermissionAndroid: 'Brak zgody na powiadomienia w systemie Android.',
-    firestorePermissionError: 'Brak uprawnień Firestore. Sprawdź reguły bazy.',
-    noUserData: 'Brak danych użytkownika.',
-    noEmail: 'Brak email',
-    testNotification: 'Testowe powiadomienie zaplanowane za 5 sekund.',
-  },
-  en: {
-    topBarTitle: 'Reminder Calendar',
-    calendarSection: 'Calendar',
-    clickToAdd: 'Tap a day in the calendar to add a trash pickup.',
-    scheduledPickups: 'Scheduled pickups',
-    loadingNotifications: 'Loading notifications...',
-    noEvents: 'No events',
-    delete: 'Delete',
-    addTrashTitle: 'Add trash pickup',
-    dateLabel: 'Date: ',
-    otherPlaceholder: 'Enter custom waste type',
-    saving: 'Saving...',
-    save: 'Save',
-    cancel: 'Cancel',
-    account: 'Account',
-    loggedInUser: 'Logged-in user',
-    householdCode: 'Household code',
-    reminderTime: 'Reminder time (day before)',
-    saveTime: 'Save time',
-    logout: 'Log out',
-    loginTitle: 'Trash App — login',
-    loginSubtitle: 'Log in or register an account for your household.',
-    emailPlaceholder: 'Email',
-    passwordPlaceholder: 'Password',
-    householdPlaceholder: 'Household code (optional when registering)',
-    timePlaceholder: 'HH:mm',
-    loggingIn: 'Logging in...',
-    login: 'Log in',
-    registering: 'Registering...',
-    register: 'Register',
-    dateFormatError: 'Date must be in YYYY-MM-DD format.',
-    wasteTypeError: 'Please provide a waste type.',
-    noHouseholdError: 'No household assigned.',
-    noUserError: 'No user data. Please log in again.',
-    firebaseNotConfigured: 'Firebase is not configured.',
-    notificationsTitle: 'Notifications',
-    noPermissionNotifications: 'No permission for notifications. Event saved without reminder.',
-    registrationError: 'Registration error',
-    loginError: 'Login error',
-    error: 'Error',
-    ok: 'OK',
-    joinedHousehold: 'Joined existing household.',
-    createdHousehold: 'Created new household.',
-    accessDenied: 'No access to household data.',
-    invalidHouseholdCode: 'Invalid household code (format: 6 characters).',
-    enterEmail: 'Please provide an email.',
-    enterValidEmail: 'Please provide a valid email (e.g. john@example.com).',
-    enterPassword: 'Please provide a password.',
-    passwordTooShort: 'Password must be at least 6 characters.',
-    formatHHmmError: 'Provide time in HH:mm format e.g. 19:30',
-    noPermissionReschedule: 'No permission for notifications. Time saved but system couldn\'t reschedule reminders.',
-    noPermissionAndroid: 'No permission for notifications on Android system.',
-    firestorePermissionError: 'No Firestore permissions. Check your rules.',
-    noUserData: 'No user data.',
-    noEmail: 'No email',
-    testNotification: 'Test notification scheduled for 5 seconds.',
-  },
-};
-
-// list of popular waste types in both languages
-const WASTE_TYPES: Record<string, string[]> = {
-  pl: [
-    "Zmieszane",
-    "Plastik i metal",
-    "Papier",
-    "Szkło",
-    "Bio",
-    "Gabaryty",
-    "Elektroodpady",
-    "Inne",
-  ],
-  en: [
-    "Mixed",
-    "Plastic & metal",
-    "Paper",
-    "Glass",
-    "Bio",
-    "Bulky",
-    "E-waste",
-    "Other",
-  ],
-};
 
 import {
   auth,
@@ -354,8 +116,8 @@ export default function App() {
     // Pokazuj wersję tylko dla buildów deweloperskich
     const isDevBuild =
       Constants.executionEnvironment === 'storeClient' // Expo Go
-      || (Constants.manifest2?.extra?.eas?.buildProfile &&
-        ['development', 'preview', 'previewLight'].includes(Constants.manifest2.extra.eas.buildProfile))
+      || ((Constants.manifest2?.extra?.eas as any)?.buildProfile &&
+        ['development', 'preview', 'previewLight'].includes((Constants.manifest2?.extra?.eas as any).buildProfile))
       || (__DEV__ === true);
   const isSigningOutRef = useRef(false);
   const [email, setEmail] = useState("");
@@ -400,7 +162,7 @@ export default function App() {
   const [customWasteType, setCustomWasteType] = useState("");
 
   // label for the "other" choice in the dropdown
-  const OTHER_WASTE_LABEL = language === 'pl' ? 'Inne' : 'Other';
+  const OTHER_WASTE_LABEL = t('otherLabel');
 
   // when language changes reset selected waste type to first option
   useEffect(() => {
@@ -511,19 +273,19 @@ export default function App() {
     const raw = error instanceof Error ? error.message : String(error);
 
     if (raw.includes("auth/invalid-email")) {
-      return "Niepoprawny adres email (przykład: jan@example.com).";
+      return t('enterValidEmail');
     }
     if (raw.includes("auth/email-already-in-use")) {
-      return "Ten email jest już zarejestrowany.";
+      return t('emailAlreadyUsed');
     }
     if (raw.includes("auth/weak-password")) {
-      return "Hasło jest za słabe (minimum 6 znaków).";
+      return t('weakPassword');
     }
     if (
       raw.includes("auth/invalid-credential") ||
       raw.includes("auth/user-not-found")
     ) {
-      return "Nieprawidłowy email lub hasło.";
+      return t('invalidCredentials');
     }
 
     return raw;
@@ -588,12 +350,12 @@ export default function App() {
       const firebaseUser = auth?.currentUser;
 
       setSessionDebugInfo({
-        tokenPreview: token ? `${token.slice(0, 14)}...` : "BRAK",
+        tokenPreview: token ? `${token.slice(0, 14)}...` : t('none'),
         hasCredentials: Boolean(raw),
-        savedEmail: parsed?.email?.trim() || "BRAK",
+        savedEmail: parsed?.email?.trim() || t('none'),
         hasPassword: Boolean(parsed?.password),
-        firebaseUid: firebaseUser?.uid ?? "BRAK",
-        firebaseEmail: firebaseUser?.email ?? "BRAK",
+        firebaseUid: firebaseUser?.uid ?? t('none'),
+        firebaseEmail: firebaseUser?.email ?? t('none'),
         autoLoginStatus,
         autoLoginError: autoLoginError || "—",
       });
@@ -636,7 +398,7 @@ export default function App() {
     userMail: string | null,
   ): Promise<HouseholdJoinResult> => {
     if (!db) {
-      throw new Error("Firebase nie jest skonfigurowany.");
+      throw new Error(t('firebaseNotConfigured'));
     }
 
     const householdRef = doc(collection(db, "households"));
@@ -662,7 +424,7 @@ export default function App() {
     code: string,
   ): Promise<HouseholdJoinResult | null> => {
     if (!db) {
-      throw new Error("Firebase nie jest skonfigurowany.");
+      throw new Error(t('firebaseNotConfigured'));
     }
 
     const codeQuery = query(
@@ -697,7 +459,7 @@ export default function App() {
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
       if (raw.includes('permission-denied')) {
-        throw new Error('Brak uprawnień do dołączenia do gospodarstwa (reguły Firestore).');
+        throw new Error(t('firestorePermissionError'));
       }
       throw err;
     }
@@ -914,8 +676,8 @@ export default function App() {
           const message =
             error instanceof Error
               ? error.message
-              : "Nie udało się załadować gospodarstwa.";
-          notify("Błąd", message);
+              : t('failedLoadHousehold');
+          notify(t('error'), message);
         }
       }
     })();
@@ -1004,8 +766,8 @@ export default function App() {
         const message =
           error instanceof Error
             ? error.message
-            : "Nie udało się załadować wydarzeń.";
-        notify("Błąd", message);
+            : t('failedLoadEvents');
+        notify(t('error'), message);
       }
     })();
 
@@ -1057,15 +819,12 @@ export default function App() {
     const triggerHour = triggerDate.getHours();
     const triggerMinute = triggerDate.getMinutes();
 
-    // build messages according to selected language
-    const title =
-      language === 'pl'
-        ? `Jutro odbiór: ${type}`
-        : `Tomorrow pickup: ${type}`;
-    const body =
-      language === 'pl'
-        ? `Jutro (${date}) odbiór: ${type}`
-        : `Tomorrow (${date}) pickup: ${type}`;
+    // build messages according to selected language using translation templates
+    const title = t('tomorrowPickupTitle')
+      .replace('{type}', type);
+    const body = t('tomorrowPickupBody')
+      .replace('{date}', date)
+      .replace('{type}', type);
 
     return Notifications.scheduleNotificationAsync({
       content: {
@@ -1213,7 +972,7 @@ export default function App() {
           } catch {
             // no-op
           }
-          const msg = "Nie znaleziono gospodarstwa dla podanego kodu.";
+          const msg = t('householdNotFound');
           setRegisterError(msg);
           notify(t('registrationError'), msg);
           return;
@@ -1321,7 +1080,7 @@ export default function App() {
       } catch (error) {
         const msg = parseAuthErrorMessage(error);
         setLoginError(msg);
-        notify("Błąd logowania", msg);
+        notify(t('loginError'), msg);
         return;
       }
     } finally {
@@ -1345,8 +1104,8 @@ export default function App() {
     } catch (error) {
       isSigningOutRef.current = false;
       const message =
-        error instanceof Error ? error.message : "Nie udało się wylogować.";
-      notify("Błąd", message);
+        error instanceof Error ? error.message : t('failedLogout');
+      notify(t('error'), message);
     }
   };
 
@@ -1409,8 +1168,8 @@ export default function App() {
         );
       } else if (!notificationId) {
         notify(
-          "Powiadomienia",
-          "Nie zaplanowano przypomnienia (termin przypomnienia już minął).",
+          t('notificationsTitle'),
+          t('reminderPast'),
         );
       }
 
@@ -1467,7 +1226,7 @@ export default function App() {
       let message =
         error instanceof Error
           ? error.message
-          : "Nie udało się dodać wydarzenia.";
+          : t('failedAddEvent');
       if (
         message.includes("permission-denied") ||
         message.includes("Missing or insufficient permissions")
@@ -1476,7 +1235,7 @@ export default function App() {
       }
 
       setModalError(message);
-      notify("Błąd", message);
+      notify(t('error'), message);
       return false;
     }
   };
@@ -1524,8 +1283,8 @@ export default function App() {
       const message =
         error instanceof Error
           ? error.message
-          : "Nie udało się usunąć wydarzenia.";
-      notify("Błąd", message);
+          : t('failedDeleteEvent');
+      notify(t('error'), message);
     }
   };
 
@@ -1561,22 +1320,24 @@ export default function App() {
 
       if (!rescheduleResult.permissionGranted) {
         notify(
-          "Powiadomienia",
+          t('notificationsTitle'),
           t('noPermissionReschedule'),
         );
         return;
       }
 
-      notify(
-        "OK",
-        `Godzina zapisana. Przeplanowano: ${rescheduleResult.updated}, pominięto: ${rescheduleResult.skipped}.`,
-      );
+      {
+        const summary = t('rescheduleWithCounts')
+          .replace('{updated}', String(rescheduleResult.updated))
+          .replace('{skipped}', String(rescheduleResult.skipped));
+        notify(t('ok'), `${t('timeSaved')} ${summary}`);
+      }
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : "Nie udało się zapisać godziny.";
-      notify("Błąd", message);
+          : t('failedSaveTime');
+      notify(t('error'), message);
     } finally {
       setIsSavingNotificationTime(false);
     }
@@ -1584,7 +1345,7 @@ export default function App() {
 
   const onSendTestNotification = async () => {
     if (Platform.OS === "web") {
-      notify("Info", "Test powiadomień działa tylko na telefonie.");
+      notify(t('ok'), t('onlyOnPhone'));
       return;
     }
 
@@ -1597,8 +1358,7 @@ export default function App() {
       const hasPermission = await requestNotificationsPermission();
 
       if (!hasPermission) {
-        notify(
-          "Powiadomienia",
+        notify(t('notificationsTitle'),
           t('noPermissionAndroid'),
         );
         return;
@@ -1613,8 +1373,8 @@ export default function App() {
 
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: "Test powiadomienia",
-          body: "Powiadomienia w aplikacji działają poprawnie.",
+          title: t('testNotifTitle'),
+          body: t('testNotifBody'),
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
@@ -1628,8 +1388,8 @@ export default function App() {
       const message =
         error instanceof Error
           ? error.message
-          : "Nie udało się zaplanować testu.";
-      notify("Błąd", message);
+          : t('failedTestSchedule');
+      notify(t('error'), message);
     } finally {
       setIsSendingTestNotification(false);
     }
@@ -1646,9 +1406,9 @@ export default function App() {
           <Text style={styles.versionBadge}>{appVersionLabel}</Text>
         )} */}
         <View style={styles.headerCard}>
-          <Text style={styles.title}>Brak konfiguracji Firebase</Text>
+          <Text style={styles.title}>{t('firebaseConfigTitle')}</Text>
           <Text style={styles.subtitle}>
-            Uzupełnij EXPO_PUBLIC_FIREBASE_* w .env i zrestartuj Expo.
+            {t('firebaseConfigSubtitle')}
           </Text>
         </View>
       </ScrollView>
@@ -1662,9 +1422,9 @@ export default function App() {
           <Text style={styles.versionBadge}>{appVersionLabel}</Text>
         )} */}
         <View style={styles.headerCard}>
-          <Text style={styles.title}>Przywracanie sesji...</Text>
+          <Text style={styles.title}>{t('sessionRestoringTitle')}</Text>
           <Text style={styles.subtitle}>
-            Sprawdzam lokalny token logowania.
+            {t('sessionRestoringSubtitle')}
           </Text>
           <View style={styles.loaderBox}>
             <ActivityIndicator size="small" color="#38bdf8" />
@@ -1834,7 +1594,6 @@ export default function App() {
               selectedDayTextColor: "#ffffff",
             }}
             style={styles.calendar}
-            locale={language}
           />
 
           <Text style={styles.selectedDateLabel}>
