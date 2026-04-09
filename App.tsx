@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
+  SectionList,
   Modal,
   Platform,
   ScrollView,
@@ -82,11 +82,93 @@ const createSecretCode = () =>
 const isValidTimeHHmm = (value: string) =>
   /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
 
+const pad2 = (value: number) => String(value).padStart(2, "0");
+
+const capitalize = (value: string) =>
+  value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+
+const parseDateKey = (dateKey: string) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return { year, month, day };
+};
+
+const formatMonthLabel = (dateKey: string, locale: string) => {
+  const { year, month } = parseDateKey(dateKey);
+  if (!year || !month) {
+    return dateKey;
+  }
+
+  const base = new Date(year, month - 1, 1).toLocaleDateString(locale, {
+    month: "long",
+    year: "numeric",
+  });
+
+  return capitalize(base);
+};
+
+const formatDayLabel = (dateKey: string, locale: string, lowerWeekday = false) => {
+  const { year, month, day } = parseDateKey(dateKey);
+  if (!year || !month || !day) {
+    return dateKey;
+  }
+
+  const date = new Date(year, month - 1, day);
+  const weekday = date.toLocaleDateString(locale, { weekday: "long" });
+  const weekdayLabel = lowerWeekday
+    ? weekday.toLocaleLowerCase(locale)
+    : weekday;
+
+  return `${day} ${weekdayLabel}`;
+};
+
+const getTodayKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+};
+
+const isDateInPast = (dateKey: string, todayKey: string) =>
+  dateKey < todayKey;
+
+const darkTheme = {
+  pageBg: "#0b1220",
+  cardBg: "#0f172a",
+  panelBg: "#111827",
+  inputBg: "#0f172a",
+  border: "#1f2937",
+  textPrimary: "#f8fafc",
+  textSecondary: "#e5e7eb",
+  textMuted: "#94a3b8",
+  accent: "#22c55e",
+  primary: "#22c55e",
+  onPrimary: "#ffffff",
+  buttonBg: "#1f2937",
+  dangerBg: "#7f1d1d",
+  dangerText: "#fecaca",
+};
+
+const lightTheme = {
+  pageBg: "#f8fafc",
+  cardBg: "#ffffff",
+  panelBg: "#f1f5f9",
+  inputBg: "#ffffff",
+  border: "#cbd5e1",
+  textPrimary: "#0f172a",
+  textSecondary: "#1f2937",
+  textMuted: "#475569",
+  accent: "#16a34a",
+  primary: "#16a34a",
+  onPrimary: "#ffffff",
+  buttonBg: "#e2e8f0",
+  dangerBg: "#b91c1c",
+  dangerText: "#fff1f2",
+};
 
 
 const MIXED_WASTE_DAY_COLOR = "#7c3aed";
+const CALENDAR_DAY_SIZE = 36;
 const SESSION_CREDENTIALS_KEY = "trash_reminder_session_credentials_v1";
 const SESSION_TOKEN_KEY = "trash_reminder_session_token_v1";
+const THEME_PREFERENCE_KEY = "trash_reminder_theme_v1";
 
 const getWasteTypeColor = (wasteType: string) => {
   const normalized = wasteType.trim().toLowerCase();
@@ -130,6 +212,76 @@ export default function App() {
 
   // language selector (default Polish)
   const [language, setLanguage] = useState<'pl' | 'en'>('pl');
+  const [themeName, setThemeName] = useState<"dark" | "light">("dark");
+  const [hasLoadedTheme, setHasLoadedTheme] = useState(false);
+  const [todayKey, setTodayKey] = useState(getTodayKey());
+  const [showHouseholdHelp, setShowHouseholdHelp] = useState(false);
+
+  const theme = useMemo(
+    () => (themeName === "dark" ? darkTheme : lightTheme),
+    [themeName],
+  );
+  const isLight = themeName === "light";
+
+  useEffect(() => {
+    let isActive = true;
+    const loadThemePreference = async () => {
+      try {
+        if (Platform.OS === "web") {
+          const saved = typeof window !== "undefined"
+            ? window.localStorage.getItem(THEME_PREFERENCE_KEY)
+            : null;
+          if (isActive && (saved === "dark" || saved === "light")) {
+            setThemeName(saved);
+          }
+        } else {
+          const saved = await AsyncStorage.getItem(THEME_PREFERENCE_KEY);
+          if (isActive && (saved === "dark" || saved === "light")) {
+            setThemeName(saved);
+          }
+        }
+      } catch {
+        // Ignore storage failures and keep default theme.
+      } finally {
+        if (isActive) {
+          setHasLoadedTheme(true);
+        }
+      }
+    };
+
+    loadThemePreference();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedTheme) {
+      return;
+    }
+
+    const saveThemePreference = async () => {
+      try {
+        if (Platform.OS === "web") {
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(THEME_PREFERENCE_KEY, themeName);
+          }
+          return;
+        }
+
+        await AsyncStorage.setItem(THEME_PREFERENCE_KEY, themeName);
+      } catch {
+        // Ignore storage failures.
+      }
+    };
+
+    saveThemePreference();
+  }, [hasLoadedTheme, themeName]);
+
+  const toggleTheme = () => {
+    setThemeName((previous) => (previous === "dark" ? "light" : "dark"));
+  };
 
   // translation helper that reads from dictionary above
   const t = (key: string) => {
@@ -168,6 +320,14 @@ export default function App() {
   useEffect(() => {
     setSelectedWasteType(WASTE_TYPES[language][0]);
   }, [language]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTodayKey(getTodayKey());
+    }, 60 * 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   // keep calendar locale in sync
   useEffect(() => {
@@ -222,39 +382,104 @@ export default function App() {
     const marks: Record<
       string,
       {
-        selected?: boolean;
-        selectedColor?: string;
-        selectedTextColor?: string;
+        customStyles?: {
+          container?: Record<string, unknown>;
+          text?: Record<string, unknown>;
+        };
       }
     > = {};
 
     for (const item of events) {
       const eventColor = getWasteTypeColor(item.wasteType);
-      const existingColor = marks[item.date]?.selectedColor;
+      const existingColor =
+        marks[item.date]?.customStyles?.container?.backgroundColor as
+          | string
+          | undefined;
+      const resolvedColor =
+        existingColor && existingColor !== eventColor
+          ? MIXED_WASTE_DAY_COLOR
+          : eventColor;
 
       marks[item.date] = {
-        ...(marks[item.date] ?? {}),
-        selected: true,
-        selectedColor:
-          existingColor && existingColor !== eventColor
-            ? MIXED_WASTE_DAY_COLOR
-            : eventColor,
-        selectedTextColor: "#ffffff",
+        customStyles: {
+          container: {
+            backgroundColor: resolvedColor,
+            borderRadius: 10,
+            width: CALENDAR_DAY_SIZE,
+            height: CALENDAR_DAY_SIZE,
+            alignItems: "center",
+            justifyContent: "center",
+          },
+          text: {
+            color: "#ffffff",
+            fontWeight: "700",
+          },
+        },
       };
     }
 
-    // Nie podświetlaj wybranego dnia na zielono po kliknięciu
-    // if (eventDate) {
-    //   marks[eventDate] = {
-    //     ...(marks[eventDate] ?? {}),
-    //     selected: true,
-    //     selectedColor: marks[eventDate]?.selectedColor ?? "#22c55e",
-    //     selectedTextColor: "#ffffff",
-    //   };
-    // }
+    if (todayKey) {
+      const existing = marks[todayKey]?.customStyles ?? {};
+      const existingText = existing.text ?? {};
+      const existingColor = (existingText.color as string | undefined) ??
+        theme.textPrimary;
+      const existingContainer = existing.container ?? {};
+      const hasBackground =
+        typeof (existingContainer as { backgroundColor?: string }).backgroundColor ===
+        "string";
+
+      marks[todayKey] = {
+        customStyles: {
+          container: {
+            ...existingContainer,
+            borderWidth: 2,
+            borderColor: theme.accent,
+            ...(hasBackground ? {} : { backgroundColor: theme.cardBg }),
+            width: CALENDAR_DAY_SIZE,
+            height: CALENDAR_DAY_SIZE,
+            alignItems: "center",
+            justifyContent: "center",
+          },
+          text: {
+            ...existingText,
+            color: existingColor,
+            fontWeight: "800",
+          },
+        },
+      };
+    }
 
     return marks;
-  }, [eventDate, events]);
+  }, [events, theme.textPrimary, todayKey]);
+
+  const groupedEvents = useMemo(() => {
+    const locale = language === "pl" ? "pl-PL" : "en-US";
+    const sections: { title: string; data: TrashEvent[] }[] = [];
+    const sectionMap = new Map<string, { title: string; data: TrashEvent[] }>();
+
+    for (const item of events) {
+      const { year, month } = parseDateKey(item.date);
+      if (!year || !month) {
+        continue;
+      }
+
+      const key = `${year}-${pad2(month)}`;
+      let section = sectionMap.get(key);
+
+      if (!section) {
+        section = {
+          title: formatMonthLabel(item.date, locale),
+          data: [],
+        };
+        sectionMap.set(key, section);
+        sections.push(section);
+      }
+
+      section.data.push(item);
+    }
+
+    return sections;
+  }, [events, language]);
 
   const notify = (title: string, message?: string) => {
     const text = message ? `${title}: ${message}` : title;
@@ -662,6 +887,12 @@ export default function App() {
   }, [showMenuModal, userUid, userEmail, autoLoginStatus, autoLoginError]);
 
   useEffect(() => {
+    if (!showMenuModal) {
+      setShowHouseholdHelp(false);
+    }
+  }, [showMenuModal]);
+
+  useEffect(() => {
     if (!db || !userUid) {
       return;
     }
@@ -743,8 +974,18 @@ export default function App() {
               };
             });
 
-            setEvents(loaded);
+            const today = getTodayKey();
+            const past = loaded.filter((item) => isDateInPast(item.date, today));
+            const upcoming = loaded.filter(
+              (item) => !isDateInPast(item.date, today),
+            );
+
+            setEvents(upcoming);
             setIsEventsLoading(false);
+
+            if (past.length > 0) {
+              cleanupPastEvents(past, today);
+            }
           },
           () => {
             setIsEventsLoading(false);
@@ -915,6 +1156,32 @@ export default function App() {
     }
 
     return { updated, skipped, permissionGranted: true };
+  };
+
+  const cleanupPastEvents = async (items: TrashEvent[], today: string) => {
+    if (!items.length || !db || !currentHouseholdId) {
+      return;
+    }
+
+    for (const item of items) {
+      if (!isDateInPast(item.date, today)) {
+        continue;
+      }
+
+      try {
+        if (item.notificationId && Platform.OS !== "web") {
+          await Notifications.cancelScheduledNotificationAsync(
+            item.notificationId,
+          );
+        }
+
+        await deleteDoc(
+          doc(db, "households", currentHouseholdId, "events", item.id),
+        );
+      } catch {
+        // best-effort cleanup only
+      }
+    }
   };
 
   const onRegister = async () => {
@@ -1123,6 +1390,13 @@ export default function App() {
       return false;
     }
 
+    if (isDateInPast(normalizedDate, getTodayKey())) {
+      const message = t('pastDateError');
+      setModalError(message);
+      notify(t('error'), message);
+      return false;
+    }
+
     if (!normalizedType) {
       const message = t('wasteTypeError');
       setModalError(message);
@@ -1241,6 +1515,10 @@ export default function App() {
   };
 
   const onCalendarDayPress = (day: { dateString: string }) => {
+    if (isDateInPast(day.dateString, getTodayKey())) {
+      notify(t('error'), t('pastDateError'));
+      return;
+    }
     setEventDate(day.dateString);
     setSelectedWasteType(WASTE_TYPES[language][0]);
     setCustomWasteType("");
@@ -1270,7 +1548,7 @@ export default function App() {
         return;
       }
 
-      if (item.notificationId) {
+      if (item.notificationId && Platform.OS !== "web") {
         await Notifications.cancelScheduledNotificationAsync(
           item.notificationId,
         );
@@ -1326,12 +1604,7 @@ export default function App() {
         return;
       }
 
-      {
-        const summary = t('rescheduleWithCounts')
-          .replace('{updated}', String(rescheduleResult.updated))
-          .replace('{skipped}', String(rescheduleResult.skipped));
-        notify(t('ok'), `${t('timeSaved')} ${summary}`);
-      }
+      notify(t('ok'), t('timeSaved'));
     } catch (error) {
       const message =
         error instanceof Error
@@ -1398,16 +1671,23 @@ export default function App() {
   if (!isFirebaseConfigured) {
     return (
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: theme.pageBg }]}
         contentContainerStyle={styles.containerContent}
         showsVerticalScrollIndicator={false}
       >
         {/* {isDevBuild && (
           <Text style={styles.versionBadge}>{appVersionLabel}</Text>
         )} */}
-        <View style={styles.headerCard}>
-          <Text style={styles.title}>{t('firebaseConfigTitle')}</Text>
-          <Text style={styles.subtitle}>
+        <View
+          style={[
+            styles.headerCard,
+            { backgroundColor: theme.cardBg, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[styles.title, { color: theme.textPrimary }]}>
+            {t('firebaseConfigTitle')}
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
             {t('firebaseConfigSubtitle')}
           </Text>
         </View>
@@ -1417,17 +1697,24 @@ export default function App() {
 
   if (!isAuthenticated && isSessionBootstrapping) {
     return (
-      <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.pageBg }]}>
         {/* {isDevBuild && (
           <Text style={styles.versionBadge}>{appVersionLabel}</Text>
         )} */}
-        <View style={styles.headerCard}>
-          <Text style={styles.title}>{t('sessionRestoringTitle')}</Text>
-          <Text style={styles.subtitle}>
+        <View
+          style={[
+            styles.headerCard,
+            { backgroundColor: theme.cardBg, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[styles.title, { color: theme.textPrimary }]}>
+            {t('sessionRestoringTitle')}
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
             {t('sessionRestoringSubtitle')}
           </Text>
           <View style={styles.loaderBox}>
-            <ActivityIndicator size="small" color="#38bdf8" />
+            <ActivityIndicator size="small" color={theme.accent} />
           </View>
         </View>
       </View>
@@ -1437,7 +1724,7 @@ export default function App() {
   if (!isAuthenticated || isRegistering || isLoggingIn) {
     return (
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: theme.pageBg }]}
         contentContainerStyle={styles.containerContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -1445,42 +1732,67 @@ export default function App() {
         {/* {isDevBuild && (
           <Text style={styles.versionBadge}>{appVersionLabel}</Text>
         )} */}
-        <View style={[styles.headerCard, { position: 'relative' }]} pointerEvents="box-none">  
-          {/* language switch added to login header */}
-          <View style={styles.langSwitchLogin} pointerEvents="auto">
-            <TouchableOpacity onPress={() => setLanguage('pl')}>
+        <View
+          style={[
+            styles.headerCard,
+            { position: 'relative', backgroundColor: theme.cardBg, borderColor: theme.border },
+          ]}
+          pointerEvents="box-none"
+        >  
+          <View style={styles.headerActions} pointerEvents="auto">
+            <TouchableOpacity
+              style={[
+                styles.themeToggle,
+                { backgroundColor: theme.buttonBg, borderColor: theme.border },
+              ]}
+              onPress={toggleTheme}
+            >
               <Text
-                style={[
-                  styles.langOption,
-                  language === 'pl' && styles.langOptionSelected,
-                ]}
+                style={[styles.themeToggleIcon, { color: theme.textPrimary }]}
               >
-                PL
+                {themeName === "dark" ? "☀" : "☾"}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setLanguage('en')}>
-              <Text
-                style={[
-                  styles.langOption,
-                  language === 'en' && styles.langOptionSelected,
-                ]}
-              >
-                EN
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.langSwitch}>
+              <TouchableOpacity onPress={() => setLanguage('pl')}>
+                <Text
+                  style={[
+                    styles.langOption,
+                    { color: theme.textMuted },
+                    language === 'pl' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                  ]}
+                >
+                  PL
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setLanguage('en')}>
+                <Text
+                  style={[
+                    styles.langOption,
+                    { color: theme.textMuted },
+                    language === 'en' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                  ]}
+                >
+                  EN
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <Text style={styles.title}>{t('loginTitle')}</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, { color: theme.textPrimary }]}>
+            {t('loginTitle')}
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
             {t('loginSubtitle')}
           </Text>
         </View>
 
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: theme.panelBg, borderColor: theme.border }]}
+        >
           <TextInput
             ref={emailRef}
             placeholder={t('emailPlaceholder')}
-            placeholderTextColor="#64748b"
+            placeholderTextColor={theme.textMuted}
             value={email}
             onChangeText={(t) => {
               setEmail(t);
@@ -1489,12 +1801,12 @@ export default function App() {
             }}
             autoCapitalize="none"
             keyboardType="email-address"
-            style={styles.input}
+            style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary }]}
           />
           <TextInput
             ref={passwordRef}
             placeholder={t('passwordPlaceholder')}
-            placeholderTextColor="#64748b"
+            placeholderTextColor={theme.textMuted}
             value={password}
             onChangeText={(t) => {
               setPassword(t);
@@ -1502,15 +1814,15 @@ export default function App() {
               setRegisterError("");
             }}
             secureTextEntry
-            style={styles.input}
+            style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary }]}
           />
           <TextInput
             placeholder={t('householdPlaceholder')}
-            placeholderTextColor="#64748b"
+            placeholderTextColor={theme.textMuted}
             value={householdInviteCode}
             onChangeText={(t) => { setHouseholdInviteCode(t); setRegisterError(""); }}
             autoCapitalize="characters"
-            style={styles.input}
+            style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary }]}
           />
 
           {loginError ? (
@@ -1521,15 +1833,32 @@ export default function App() {
           ) : null}
 
           <View style={styles.actionRow}>
-            <TouchableOpacity style={[styles.primaryButton, isLoggingIn && styles.disabledButton]} onPress={onLogin} disabled={isLoggingIn}>
-              <Text style={styles.primaryButtonText}>{isLoggingIn ? t('loggingIn') : t('login')}</Text>
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                { backgroundColor: theme.primary },
+                isLoggingIn && styles.disabledButton,
+              ]}
+              onPress={onLogin}
+              disabled={isLoggingIn}
+            >
+              <Text style={[styles.primaryButtonText, { color: theme.onPrimary }]}>
+                {isLoggingIn ? t('loggingIn') : t('login')}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.secondaryButton, isRegistering && styles.disabledButton]}
+              style={[
+                styles.secondaryButton,
+                { backgroundColor: theme.buttonBg },
+                isRegistering && styles.disabledButton,
+              ]}
               onPress={onRegister}
               disabled={isRegistering}
             >
-              <Text style={styles.secondaryButtonText}>{isRegistering ? t('registering') : t('register')}</Text>
+              <Text style={[styles.secondaryButtonText, { color: theme.textPrimary }]}
+              >
+                {isRegistering ? t('registering') : t('register')}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1538,7 +1867,7 @@ export default function App() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.pageBg }]}>
       {/* {isDevBuild && (
         <Text style={styles.versionBadge}>{appVersionLabel}</Text>
       )} */}
@@ -1548,87 +1877,251 @@ export default function App() {
       >
         <View style={styles.topBar}>
           <TouchableOpacity
-            style={styles.hamburgerButton}
+            style={[
+              styles.hamburgerButton,
+              { backgroundColor: theme.buttonBg, borderColor: theme.border },
+            ]}
             onPress={() => setShowMenuModal(true)}
           >
-            <Text style={styles.hamburgerIcon}>☰</Text>
+            <Text style={[styles.hamburgerIcon, { color: theme.textPrimary }]}>
+              ☰
+            </Text>
           </TouchableOpacity>
-          <Text style={styles.topBarTitle}>{t('topBarTitle')}</Text>
-          <View style={styles.langSwitch}>
-            <TouchableOpacity onPress={() => setLanguage('pl')}>
+          <Text style={[styles.topBarTitle, { color: theme.textPrimary }]}>
+            {t('topBarTitle')}
+          </Text>
+          <View style={styles.topBarActions}>
+            <TouchableOpacity
+              style={[
+                styles.themeToggle,
+                { backgroundColor: theme.buttonBg, borderColor: theme.border },
+              ]}
+              onPress={toggleTheme}
+            >
               <Text
-                style={[
-                  styles.langOption,
-                  language === 'pl' && styles.langOptionSelected,
-                ]}
+                style={[styles.themeToggleIcon, { color: theme.textPrimary }]}
               >
-                PL
+                {themeName === "dark" ? "☀" : "☾"}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setLanguage('en')}>
-              <Text
-                style={[
-                  styles.langOption,
-                  language === 'en' && styles.langOptionSelected,
-                ]}
-              >
-                EN
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.langSwitch}>
+              <TouchableOpacity onPress={() => setLanguage('pl')}>
+                <Text
+                  style={[
+                    styles.langOption,
+                    { color: theme.textMuted },
+                    language === 'pl' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                  ]}
+                >
+                  PL
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setLanguage('en')}>
+                <Text
+                  style={[
+                    styles.langOption,
+                    { color: theme.textMuted },
+                    language === 'en' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                  ]}
+                >
+                  EN
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>{t('calendarSection')}</Text>
+        <View
+          style={[styles.card, { backgroundColor: theme.panelBg, borderColor: theme.border }]}
+        >
+          <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}> 
+            {t('calendarSection')}
+          </Text>
           <Calendar
+            key={`calendar-${themeName}`}
             onDayPress={onCalendarDayPress}
             markedDates={markedDates}
+            markingType="custom"
             firstDay={1}
+            minDate={todayKey}
+            hideExtraDays
+            enableSwipeMonths
+            renderArrow={(direction) => (
+              <View
+                style={[
+                  styles.calendarArrow,
+                  { borderColor: theme.border, backgroundColor: theme.buttonBg },
+                ]}
+              >
+                <Text style={[styles.calendarArrowText, { color: theme.textPrimary }]}
+                >
+                  {direction === "left" ? "‹" : "›"}
+                </Text>
+              </View>
+            )}
             theme={{
-              calendarBackground: "transparent",
-              textSectionTitleColor: "#94a3b8",
-              dayTextColor: "#e5e7eb",
-              monthTextColor: "#e5e7eb",
-              arrowColor: "#22c55e",
-              todayTextColor: "#38bdf8",
-              selectedDayTextColor: "#ffffff",
+              calendarBackground: isLight ? "#ffffff" : theme.cardBg,
+              textSectionTitleColor:
+                isLight ? "#475569" : theme.textMuted,
+              dayTextColor: isLight ? "#0f172a" : theme.textPrimary,
+              monthTextColor: isLight ? "#0f172a" : theme.textPrimary,
+              arrowColor: theme.accent,
+              todayTextColor: theme.accent,
+              selectedDayTextColor: theme.onPrimary,
+              textDisabledColor:
+                isLight ? "#94a3b8" : theme.textMuted,
+              textDayFontWeight: "600",
+              textMonthFontWeight: "700",
+              textDayHeaderFontWeight: "600",
+              textDayFontSize: 14,
+              textMonthFontSize: 18,
+              textDayHeaderFontSize: 12,
+              "stylesheet.day.basic": {
+                base: {
+                  color: isLight ? "#0f172a" : theme.textPrimary,
+                  fontWeight: "600",
+                  backgroundColor: isLight ? "#ffffff" : "transparent",
+                  width: CALENDAR_DAY_SIZE,
+                  height: CALENDAR_DAY_SIZE,
+                  alignItems: "center",
+                  justifyContent: "center",
+                },
+                today: {
+                  color: theme.accent,
+                  fontWeight: "800",
+                },
+                disabledText: {
+                  color: theme.textMuted,
+                },
+              },
+              "stylesheet.calendar.main": {
+                container: {
+                  backgroundColor:
+                    isLight ? "#ffffff" : theme.cardBg,
+                },
+                monthView: {
+                  backgroundColor: isLight ? "#ffffff" : theme.cardBg,
+                },
+                week: {
+                  marginTop: 4,
+                  marginBottom: 4,
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  backgroundColor: isLight ? "#ffffff" : theme.cardBg,
+                },
+                dayContainer: {
+                  flex: 1,
+                  alignItems: "center",
+                },
+              },
+              "stylesheet.calendar.header": {
+                header: {
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingTop: 6,
+                  paddingBottom: 10,
+                  borderBottomWidth: 1,
+                  borderBottomColor: theme.border,
+                  marginBottom: 6,
+                  paddingHorizontal: 6,
+                  backgroundColor:
+                    isLight ? "#ffffff" : theme.cardBg,
+                },
+                monthText: {
+                  color: isLight ? "#0f172a" : theme.textPrimary,
+                  fontWeight: "700",
+                  textAlign: "center",
+                  alignSelf: "center",
+                  flex: 1,
+                },
+                dayHeader: {
+                  color: isLight ? "#475569" : theme.textMuted,
+                  fontWeight: "600",
+                  textTransform: "uppercase",
+                },
+              },
             }}
-            style={styles.calendar}
+            style={[
+              styles.calendar,
+              {
+                backgroundColor: isLight ? "#ffffff" : theme.cardBg,
+                borderColor: theme.border,
+              },
+            ]}
           />
 
-          <Text style={styles.selectedDateLabel}>
+          <Text style={[styles.selectedDateLabel, { color: theme.textMuted }]}> 
             {t('clickToAdd')}
           </Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>{t('scheduledPickups')}</Text>
+        <View
+          style={[styles.card, { backgroundColor: theme.panelBg, borderColor: theme.border }]}
+        >
+          <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}> 
+            {t('scheduledPickups')}
+          </Text>
           {isEventsLoading ? (
             <View style={styles.loaderBox}>
-              <ActivityIndicator size="small" color="#38bdf8" />
-              <Text style={styles.loaderText}>{t('loadingNotifications')}</Text>
+              <ActivityIndicator size="small" color={theme.accent} />
+              <Text style={[styles.loaderText, { color: theme.textMuted }]}
+              >
+                {t('loadingNotifications')}
+              </Text>
             </View>
           ) : (
-            <FlatList
-              data={events}
+            <SectionList
+              sections={groupedEvents}
               keyExtractor={(item) => item.id}
               ListEmptyComponent={
-                <Text style={styles.muted}>{t('noEvents')}</Text>
+                <Text style={[styles.muted, { color: theme.textMuted }]}> 
+                  {t('noEvents')}
+                </Text>
               }
-              renderItem={({ item }) => (
-                <View style={styles.eventRow}>
-                  <View style={styles.eventContent}>
-                    <Text style={styles.eventText}>{item.date}</Text>
-                    <Text style={styles.muted}>{item.wasteType}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => onDeleteEvent(item)}
-                  >
-                    <Text style={styles.deleteButtonText}>{t('delete')}</Text>
-                  </TouchableOpacity>
-                </View>
+              renderSectionHeader={({ section }) => (
+                <Text style={[styles.sectionHeader, { color: theme.textPrimary }]}> 
+                  {section.title}
+                </Text>
               )}
+              renderItem={({ item }) => {
+                const locale = language === "pl" ? "pl-PL" : "en-US";
+                const dayLabel = formatDayLabel(
+                  item.date,
+                  locale,
+                  language === "pl",
+                );
+
+                return (
+                  <View
+                    style={[
+                      styles.eventRowCompact,
+                      { backgroundColor: theme.cardBg, borderColor: theme.border },
+                    ]}
+                  >
+                    <View style={styles.eventContent}>
+                      <Text
+                        style={[styles.eventTextCompact, { color: theme.textPrimary }]}
+                      >
+                        {dayLabel}
+                      </Text>
+                      <Text style={[styles.eventMetaText, { color: theme.textMuted }]}> 
+                        {item.wasteType}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.deleteButton, { backgroundColor: theme.dangerBg }]}
+                      onPress={() => onDeleteEvent(item)}
+                    >
+                      <Text
+                        style={[styles.deleteButtonText, { color: theme.dangerText, textTransform: "lowercase" }]}
+                      >
+                        {t('delete')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              }}
             />
           )}
         </View>
@@ -1644,32 +2137,50 @@ export default function App() {
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{t('addTrashTitle')}</Text>
-            <Text style={styles.modalSubtitle}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: theme.textPrimary }]}> 
+              {t('addTrashTitle')}
+            </Text>
+            <Text style={[styles.modalSubtitle, { color: theme.textMuted }]}> 
               {t('dateLabel')}{eventDate}
             </Text>
 
             <TouchableOpacity
-              style={styles.dropdownTrigger}
+              style={[
+                styles.dropdownTrigger,
+                { borderColor: theme.border, backgroundColor: theme.inputBg },
+              ]}
               onPress={() =>
                 setIsWasteTypeDropdownOpen((previous) => !previous)
               }
             >
-              <Text style={styles.dropdownTriggerText}>
+              <Text style={[styles.dropdownTriggerText, { color: theme.textPrimary }]}> 
                 {selectedWasteType}
               </Text>
-              <Text style={styles.dropdownChevron}>
+              <Text style={[styles.dropdownChevron, { color: theme.textMuted }]}> 
                 {isWasteTypeDropdownOpen ? "▴" : "▾"}
               </Text>
             </TouchableOpacity>
 
             {isWasteTypeDropdownOpen ? (
-              <View style={styles.dropdownList}>
+              <View
+                style={[
+                  styles.dropdownList,
+                  { borderColor: theme.border, backgroundColor: theme.pageBg },
+                ]}
+              >
                 {WASTE_TYPES[language].map((type) => (
                   <TouchableOpacity
                     key={type}
-                    style={styles.dropdownItem}
+                    style={[
+                      styles.dropdownItem,
+                      { borderBottomColor: theme.border },
+                    ]}
                     onPress={() => {
                       setSelectedWasteType(type);
                       if (type !== OTHER_WASTE_LABEL) {
@@ -1681,8 +2192,9 @@ export default function App() {
                     <Text
                       style={[
                         styles.dropdownItemText,
+                        { color: theme.textSecondary },
                         selectedWasteType === type &&
-                          styles.dropdownItemTextSelected,
+                          [styles.dropdownItemTextSelected, { color: theme.accent }],
                       ]}
                     >
                       {type}
@@ -1697,8 +2209,11 @@ export default function App() {
                 value={customWasteType}
                 onChangeText={setCustomWasteType}
                 placeholder={t('otherPlaceholder')}
-                placeholderTextColor="#64748b"
-                style={styles.input}
+                placeholderTextColor={theme.textMuted}
+                style={[
+                  styles.input,
+                  { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
+                ]}
               />
             ) : null}
 
@@ -1710,23 +2225,26 @@ export default function App() {
               <TouchableOpacity
                 style={[
                   styles.primaryButton,
+                  { backgroundColor: theme.primary },
                   isSavingEvent && styles.disabledButton,
                 ]}
                 onPress={onConfirmWasteType}
                 disabled={isSavingEvent}
               >
-                <Text style={styles.primaryButtonText}>
+                <Text style={[styles.primaryButtonText, { color: theme.onPrimary }]}>
                   {isSavingEvent ? t('saving') : t('save')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.secondaryButton}
+                style={[styles.secondaryButton, { backgroundColor: theme.buttonBg }]}
                 onPress={() => {
                   setShowWasteModal(false);
                   setIsWasteTypeDropdownOpen(false);
                 }}
               >
-                <Text style={styles.secondaryButtonText}>{t('cancel')}</Text>
+                <Text style={[styles.secondaryButtonText, { color: theme.textPrimary }]}> 
+                  {t('cancel')}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1741,45 +2259,93 @@ export default function App() {
       >
         <View style={styles.menuOverlay}>
           <ScrollView
-            style={styles.menuPanel}
+            style={[
+              styles.menuPanel,
+              { backgroundColor: theme.cardBg, borderRightColor: theme.border },
+            ]}
             contentContainerStyle={styles.menuPanelContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.menuTitle}>{t('account')}</Text>
-            <View style={styles.menuUserBox}>
-              <Text style={styles.menuUserLabel}>{t('loggedInUser')}</Text>
-              <Text style={styles.menuUserEmail}>
+            <Text style={[styles.menuTitle, { color: theme.textPrimary }]}> 
+              {t('account')}
+            </Text>
+            <View
+              style={[
+                styles.menuUserBox,
+                { backgroundColor: theme.panelBg, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
+                {t('loggedInUser')}
+              </Text>
+              <Text style={[styles.menuUserEmail, { color: theme.textPrimary }]}> 
                 {userEmail ?? t('noEmail')}
               </Text>
             </View>
-            <View style={styles.menuUserBox}>
-              <Text style={styles.menuUserLabel}>{t('householdCode')}</Text>
-              <Text style={styles.menuSecretCode}>
+            <View
+              style={[
+                styles.menuUserBox,
+                { backgroundColor: theme.panelBg, borderColor: theme.border },
+              ]}
+            >
+              <View style={styles.menuLabelRow}>
+                <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
+                  {t('householdCode')}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.infoButton,
+                    { borderColor: theme.border, backgroundColor: theme.buttonBg },
+                  ]}
+                  onPress={() =>
+                    setShowHouseholdHelp((previous) => !previous)
+                  }
+                >
+                  <Text style={[styles.infoButtonText, { color: theme.textPrimary }]}> 
+                    i
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.menuSecretCode, { color: theme.accent }]}> 
                 {householdSecretCode || "—"}
               </Text>
+              {showHouseholdHelp ? (
+                <Text style={[styles.tooltipText, { color: theme.textMuted }]}> 
+                  {t('householdTooltip')}
+                </Text>
+              ) : null}
             </View>
 
-            <View style={styles.menuUserBox}>
-              <Text style={styles.menuUserLabel}>
+            <View
+              style={[
+                styles.menuUserBox,
+                { backgroundColor: theme.panelBg, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
                 {t('reminderTime')}
               </Text>
               <TextInput
                 value={notificationTimeInput}
                 onChangeText={setNotificationTimeInput}
                 placeholder={t('timePlaceholder')}
-                placeholderTextColor="#64748b"
-                style={styles.menuInput}
+                placeholderTextColor={theme.textMuted}
+                style={[
+                  styles.menuInput,
+                  { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
+                ]}
               />
               <TouchableOpacity
                 style={[
                   styles.menuSaveButton,
+                  { backgroundColor: theme.primary },
                   isSavingNotificationTime && styles.disabledButton,
                 ]}
                 onPress={onSaveNotificationTime}
                 disabled={isSavingNotificationTime}
               >
-                <Text style={styles.menuSaveText}>
+                <Text style={[styles.menuSaveText, { color: theme.onPrimary }]}> 
                   {isSavingNotificationTime
                     ? t('saving')
                     : t('saveTime')}
@@ -1787,13 +2353,15 @@ export default function App() {
               </TouchableOpacity>
             </View>
             <TouchableOpacity
-              style={styles.menuLogoutButton}
+              style={[styles.menuLogoutButton, { backgroundColor: theme.dangerBg }]}
               onPress={async () => {
                 setShowMenuModal(false);
                 await onLogout();
               }}
             >
-              <Text style={styles.menuLogoutText}>{t('logout')}</Text>
+              <Text style={[styles.menuLogoutText, { color: theme.dangerText }]}> 
+                {t('logout')}
+              </Text>
             </TouchableOpacity>
           </ScrollView>
           <TouchableOpacity
@@ -1837,18 +2405,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 2,
   },
+  topBarActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginLeft: "auto",
+  },
   langSwitch: {
     flexDirection: "row",
     gap: 6,
-    marginLeft: "auto",
   },
-  langSwitchLogin: {
+  headerActions: {
     position: 'absolute',
     top: 8,
     right: 8,
     flexDirection: 'row',
-    gap: 6,
-    zIndex: 20,          // ensure on top for touch
+    gap: 8,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  themeToggle: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  themeToggleIcon: {
+    fontSize: 14,
+    fontWeight: "700",
   },
   langOption: {
     color: "#94a3b8",
@@ -1915,10 +2501,33 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 10,
   },
+  sectionHeader: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginTop: 10,
+    marginBottom: 6,
+  },
   calendar: {
+    borderWidth: 1,
     borderRadius: 10,
     overflow: "hidden",
     marginBottom: 10,
+    paddingBottom: 8,
+    paddingTop: 6,
+    paddingHorizontal: 6,
+  },
+  calendarArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarArrowText: {
+    fontSize: 18,
+    fontWeight: "700",
+    lineHeight: 20,
   },
   selectedDateLabel: {
     color: "#94a3b8",
@@ -2018,12 +2627,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#0f172a",
   },
+  eventRowCompact: {
+    borderWidth: 1,
+    borderColor: "#1f2937",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   eventContent: {
     flex: 1,
   },
   eventText: {
     fontWeight: "600",
     color: "#f8fafc",
+  },
+  eventTextCompact: {
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  eventMetaText: {
+    marginTop: 2,
+    fontSize: 12,
   },
   loaderBox: {
     paddingVertical: 20,
@@ -2106,6 +2734,29 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     backgroundColor: "#111827",
+  },
+  menuLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  infoButton: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  tooltipText: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 16,
   },
   menuUserLabel: {
     color: "#94a3b8",
