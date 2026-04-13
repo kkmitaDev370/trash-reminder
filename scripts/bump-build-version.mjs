@@ -16,6 +16,9 @@ if (!appJson.expo) {
 }
 
 appJson.expo.version = nextVersion;
+appJson.expo.runtimeVersion = {
+  policy: 'appVersion',
+};
 
 if (!appJson.expo.android) {
   appJson.expo.android = {};

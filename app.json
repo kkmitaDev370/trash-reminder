@@ -2,7 +2,7 @@
   "expo": {
     "name": "Harmonogram Śmieci",
     "slug": "trash-reminder",
-    "version": "1.0.18",
+    "version": "1.0.28",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -16,14 +16,15 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.trashreminder",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "Potrzebujemy dostępu do galerii, aby zaimportować harmonogram."
       },
       "splash": {
         "image": "./assets/splash-icon.png",
         "resizeMode": "contain",
         "backgroundColor": "#0b1220"
       },
-      "buildNumber": "18"
+      "buildNumber": "28"
     },
     "android": {
       "splash": {
@@ -37,20 +38,23 @@
       },
       "edgeToEdgeEnabled": false,
       "package": "com.anonymous.trashreminder",
-      "versionCode": 18
+      "versionCode": 28
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-notifications"
+      "expo-notifications",
+      "expo-image-picker"
     ],
     "extra": {
       "eas": {
         "projectId": "b60bb173-8027-4942-9054-19aad01d4e35"
       }
     },
-    "runtimeVersion": "1.0.1",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "updates": {
       "url": "https://u.expo.dev/b60bb173-8027-4942-9054-19aad01d4e35"
     },

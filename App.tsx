@@ -13,7 +13,18 @@ import {
   View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  sendEmailVerification,
+  signInWithCredential,
+  signInWithPopup,
+  signOut,
+  type User,
+} from "firebase/auth";
 import {
   addDoc,
   arrayUnion,
@@ -22,6 +33,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   limit,
   onSnapshot,
   orderBy,
@@ -34,6 +46,8 @@ import * as Notifications from "expo-notifications";
 import * as Application from "expo-application";
 import Constants from "expo-constants";
 import * as Updates from "expo-updates";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
 import { translations, WASTE_TYPES, localeData } from './translations';
 import { Calendar, LocaleConfig } from "react-native-calendars";
 
@@ -50,11 +64,18 @@ import {
   registerUser,
 } from "./firebase";
 
+WebBrowser.maybeCompleteAuthSession();
+
 type TrashEvent = {
   id: string;
   date: string;
   wasteType: string;
   notificationId?: string;
+};
+
+type ImportItem = {
+  date: string;
+  wasteType: string;
 };
 
 type HouseholdJoinResult = {
@@ -169,6 +190,47 @@ const CALENDAR_DAY_SIZE = 36;
 const SESSION_CREDENTIALS_KEY = "trash_reminder_session_credentials_v1";
 const SESSION_TOKEN_KEY = "trash_reminder_session_token_v1";
 const THEME_PREFERENCE_KEY = "trash_reminder_theme_v1";
+const MAX_IMPORT_FILE_SIZE_BYTES = 8 * 1024 * 1024;
+const FIREBASE_PROJECT_ID =
+  (process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "").trim();
+const DEFAULT_FUNCTION_REGION = "us-central1";
+const DEFAULT_IMPORT_ENDPOINT = FIREBASE_PROJECT_ID
+  ? `https://${DEFAULT_FUNCTION_REGION}-${FIREBASE_PROJECT_ID}.cloudfunctions.net/trashImport`
+  : "";
+const normalizeImportEndpoint = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.endsWith("/trashimport")) {
+    return trimmed.replace(/\/trashimport$/, "/trashImport");
+  }
+
+  if (trimmed.endsWith("trashimport")) {
+    return trimmed.replace(/trashimport$/, "trashImport");
+  }
+
+  return trimmed;
+};
+
+const IMPORT_ENDPOINT =
+  normalizeImportEndpoint(
+    process.env.EXPO_PUBLIC_TRASH_AI_IMPORT_URL ?? "",
+  ) || DEFAULT_IMPORT_ENDPOINT;
+const GOOGLE_WEB_CLIENT_ID =
+  (process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? "").trim();
+const GOOGLE_ANDROID_CLIENT_ID =
+  (process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? "").trim();
+const GOOGLE_IOS_CLIENT_ID =
+  (process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? "").trim();
+const DEFAULT_FEEDBACK_ENDPOINT = FIREBASE_PROJECT_ID
+  ? `https://${DEFAULT_FUNCTION_REGION}-${FIREBASE_PROJECT_ID}.cloudfunctions.net/feedbackSubmit`
+  : "";
+const FEEDBACK_ENDPOINT =
+  normalizeImportEndpoint(
+    process.env.EXPO_PUBLIC_FEEDBACK_URL ?? "",
+  ) || DEFAULT_FEEDBACK_ENDPOINT;
 
 const getWasteTypeColor = (wasteType: string) => {
   const normalized = wasteType.trim().toLowerCase();
@@ -194,6 +256,253 @@ const getWasteTypeColor = (wasteType: string) => {
   return "#6366f1";
 };
 
+const normalizeMatchText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const WASTE_TYPE_KEYWORDS: Record<"pl" | "en", { type: string; keywords: string[] }[]> = {
+  pl: [
+    { type: "Zmieszane", keywords: ["zmiesz", "resztk"] },
+    { type: "Plastik i metal", keywords: ["plastik", "metal", "tworzyw"] },
+    { type: "Papier", keywords: ["papier", "makul"] },
+    { type: "Szkło", keywords: ["szklo", "szkło", "glass"] },
+    { type: "Bio", keywords: ["bio", "organicz", "kompost"] },
+    { type: "Gabaryty", keywords: ["gabary", "wielkogab", "meble"] },
+    { type: "Elektroodpady", keywords: ["elektro", "sprzet", "sprzęt", "e-odp"] },
+  ],
+  en: [
+    { type: "Mixed", keywords: ["mixed", "general"] },
+    { type: "Plastic & metal", keywords: ["plastic", "metal", "packaging"] },
+    { type: "Paper", keywords: ["paper"] },
+    { type: "Glass", keywords: ["glass"] },
+    { type: "Bio", keywords: ["bio", "organic", "compost"] },
+    { type: "Bulky", keywords: ["bulky", "large", "furniture"] },
+    { type: "E-waste", keywords: ["e-waste", "ewaste", "electronics"] },
+  ],
+};
+
+const normalizeDateString = (raw: string) => {
+  const parts = raw.trim().split(/[.\/-]/).map(Number);
+  if (parts.length < 2 || parts.some((value) => Number.isNaN(value))) {
+    return null;
+  }
+
+  const now = new Date();
+  const [a, b, c] = parts;
+  let year = c;
+  let month = b;
+  let day = a;
+
+  if (parts.length === 2) {
+    year = now.getFullYear();
+  } else if (a >= 1000) {
+    year = a;
+    month = b;
+    day = c;
+  } else if (c >= 1000) {
+    year = c;
+    month = b;
+    day = a;
+  }
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+};
+
+const normalizeDateParts = (day: number, month: number, year?: number) => {
+  if (!day || !month) {
+    return null;
+  }
+
+  const resolvedYear = year ?? new Date().getFullYear();
+  return `${resolvedYear}-${pad2(month)}-${pad2(day)}`;
+};
+
+const extractDatesFromLine = (line: string, language: "pl" | "en") => {
+  const dates: string[] = [];
+  const patterns = [
+    /\b\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2}\b/g,
+    /\b\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}\b/g,
+    /\b\d{1,2}[.\/-]\d{1,2}\b/g,
+  ];
+
+  for (const pattern of patterns) {
+    const matches = line.match(pattern) ?? [];
+    for (const match of matches) {
+      const normalized = normalizeDateString(match);
+      if (normalized) {
+        dates.push(normalized);
+      }
+    }
+  }
+
+  const monthMap =
+    language === "pl"
+      ? {
+          styczen: 1,
+          styczenia: 1,
+          sty: 1,
+          luty: 2,
+          lutego: 2,
+          lut: 2,
+          marzec: 3,
+          marca: 3,
+          mar: 3,
+          kwiecien: 4,
+          kwietnia: 4,
+          kwi: 4,
+          maj: 5,
+          maja: 5,
+          czerwiec: 6,
+          czerwca: 6,
+          cze: 6,
+          lipiec: 7,
+          lipca: 7,
+          lip: 7,
+          sierpien: 8,
+          sierpnia: 8,
+          sie: 8,
+          wrzesien: 9,
+          wrzesnia: 9,
+          wrz: 9,
+          pazdziernik: 10,
+          pazdziernika: 10,
+          paz: 10,
+          listopad: 11,
+          listopada: 11,
+          lis: 11,
+          grudzien: 12,
+          grudnia: 12,
+          gru: 12,
+        }
+      : {
+          january: 1,
+          jan: 1,
+          february: 2,
+          feb: 2,
+          march: 3,
+          mar: 3,
+          april: 4,
+          apr: 4,
+          may: 5,
+          june: 6,
+          jun: 6,
+          july: 7,
+          jul: 7,
+          august: 8,
+          aug: 8,
+          september: 9,
+          sep: 9,
+          sept: 9,
+          october: 10,
+          oct: 10,
+          november: 11,
+          nov: 11,
+          december: 12,
+          dec: 12,
+        };
+  const monthPattern =
+    language === "pl"
+      ? /(\d{1,2})\s*(stycznia|styczen|sty|lutego|luty|lut|marca|marzec|mar|kwietnia|kwiecien|kwi|maja|maj|czerwca|czerwiec|cze|lipca|lipiec|lip|sierpnia|sierpien|sie|wrzesnia|wrzesien|wrz|pazdziernika|pazdziernik|paz|listopada|listopad|lis|grudnia|grudzien|gru)\s*(\d{4})?/gi
+      : /(\d{1,2})\s*(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s*(\d{4})?/gi;
+
+  const normalizedLine = normalizeMatchText(line);
+  let monthMatch: RegExpExecArray | null;
+  while ((monthMatch = monthPattern.exec(normalizedLine))) {
+    const day = Number(monthMatch[1]);
+    const monthKey = monthMatch[2];
+    const year = monthMatch[3] ? Number(monthMatch[3]) : undefined;
+    const month = monthMap[monthKey as keyof typeof monthMap];
+    if (!month) {
+      continue;
+    }
+    const normalized = normalizeDateParts(day, month, year);
+    if (normalized) {
+      dates.push(normalized);
+    }
+  }
+
+  return Array.from(new Set(dates));
+};
+
+const detectWasteType = (
+  line: string,
+  language: "pl" | "en",
+): string | null => {
+  const normalized = normalizeMatchText(line);
+  for (const entry of WASTE_TYPE_KEYWORDS[language]) {
+    if (entry.keywords.some((keyword) => normalized.includes(keyword))) {
+      return entry.type;
+    }
+  }
+
+  return null;
+};
+
+const parseImportText = (
+  text: string,
+  language: "pl" | "en",
+  fallbackType: string,
+) => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const items: ImportItem[] = [];
+  let pendingDate: string | null = null;
+
+  for (const line of lines) {
+    const dates = extractDatesFromLine(line, language);
+    const type = detectWasteType(line, language);
+
+    if (dates.length) {
+      const resolvedType = type ?? fallbackType;
+      for (const date of dates) {
+        items.push({ date, wasteType: resolvedType });
+      }
+      pendingDate = null;
+      continue;
+    }
+
+    if (pendingDate && type) {
+      items.push({ date: pendingDate, wasteType: type });
+      pendingDate = null;
+    }
+  }
+
+  if (pendingDate) {
+    items.push({ date: pendingDate, wasteType: fallbackType });
+  }
+
+  return items;
+};
+
+const readWebFileAsDataUrl = async (uri: string) => {
+  const response = await fetch(uri);
+  const blob = await response.blob();
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(blob);
+  });
+};
+
+const dataUrlToBase64 = (dataUrl: string) => {
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex === -1) {
+    return "";
+  }
+  return dataUrl.slice(commaIndex + 1);
+};
+
 export default function App() {
     // Pokazuj wersję tylko dla buildów deweloperskich
     const isDevBuild =
@@ -209,6 +518,7 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [needsEmailVerification, setNeedsEmailVerification] = useState(false);
 
   // language selector (default Polish)
   const [language, setLanguage] = useState<'pl' | 'en'>('pl');
@@ -216,6 +526,7 @@ export default function App() {
   const [hasLoadedTheme, setHasLoadedTheme] = useState(false);
   const [todayKey, setTodayKey] = useState(getTodayKey());
   const [showHouseholdHelp, setShowHouseholdHelp] = useState(false);
+  const [showImportHelp, setShowImportHelp] = useState(false);
 
   const theme = useMemo(
     () => (themeName === "dark" ? darkTheme : lightTheme),
@@ -301,6 +612,8 @@ export default function App() {
     useState(false);
   const [isSendingTestNotification, setIsSendingTestNotification] =
     useState(false);
+  const [isClearingAllEvents, setIsClearingAllEvents] = useState(false);
+  const [isSendingFeedback, setIsSendingFeedback] = useState(false);
 
   const [currentHouseholdId, setCurrentHouseholdId] = useState<string | null>(
     null,
@@ -338,8 +651,21 @@ export default function App() {
   const [modalError, setModalError] = useState("");
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [showMenuModal, setShowMenuModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackSubject, setFeedbackSubject] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackError, setFeedbackError] = useState("");
   const [events, setEvents] = useState<TrashEvent[]>([]);
   const [isEventsLoading, setIsEventsLoading] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importItems, setImportItems] = useState<ImportItem[]>([]);
+  const [importFileName, setImportFileName] = useState("");
+  const [importRawText, setImportRawText] = useState("");
+  const [showImportRaw, setShowImportRaw] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<number | null>(null);
+  const [isSavingImports, setIsSavingImports] = useState(false);
   const [isSessionBootstrapping, setIsSessionBootstrapping] = useState(
     Platform.OS !== "web",
   );
@@ -366,6 +692,7 @@ export default function App() {
   });
   const [isSessionDebugLoading, setIsSessionDebugLoading] = useState(false);
   const isAuthenticated = Boolean(userUid);
+  const isDevAdmin = Boolean(isDevBuild && userUid);
   const appVersionLabel = (() => {
     const nativeVersion = Application.nativeApplicationVersion ?? "dev";
     const nativeBuild = Application.nativeBuildVersion ?? "dev";
@@ -481,6 +808,58 @@ export default function App() {
     return sections;
   }, [events, language]);
 
+  const groupedImportItems = useMemo(() => {
+    if (!importItems.length) {
+      return [] as { key: string; title: string; items: ImportItem[] }[];
+    }
+
+    const locale = language === "pl" ? "pl-PL" : "en-US";
+    const sectionMap = new Map<string, { key: string; title: string; items: ImportItem[] }>();
+
+    for (const item of importItems) {
+      const { year, month } = parseDateKey(item.date);
+      if (!year || !month) {
+        continue;
+      }
+
+      const key = `${year}-${pad2(month)}`;
+      let section = sectionMap.get(key);
+      if (!section) {
+        section = {
+          key,
+          title: formatMonthLabel(item.date, locale),
+          items: [],
+        };
+        sectionMap.set(key, section);
+      }
+
+      section.items.push(item);
+    }
+
+    const sections = Array.from(sectionMap.values());
+    sections.sort((left, right) => left.key.localeCompare(right.key));
+    sections.forEach((section) =>
+      section.items.sort((left, right) => left.date.localeCompare(right.date)),
+    );
+
+    return sections;
+  }, [importItems, language]);
+
+  const hasGoogleClientIds = Boolean(
+    GOOGLE_WEB_CLIENT_ID || GOOGLE_ANDROID_CLIENT_ID || GOOGLE_IOS_CLIENT_ID,
+  );
+
+  const [googleRequest, , promptGoogleSignIn] =
+    Google.useAuthRequest(
+      hasGoogleClientIds
+        ? {
+            webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+            androidClientId: GOOGLE_ANDROID_CLIENT_ID || undefined,
+            iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
+          }
+        : { clientId: "disabled" },
+    );
+
   const notify = (title: string, message?: string) => {
     const text = message ? `${title}: ${message}` : title;
 
@@ -492,6 +871,52 @@ export default function App() {
     }
 
     Alert.alert(title, message);
+  };
+
+  const isPasswordUser = (user: User | null) => {
+    if (!user) {
+      return false;
+    }
+
+    return user.providerData.some((provider) => provider.providerId === "password");
+  };
+
+  const ensureEmailVerified = async (user: User | null) => {
+    if (!user || !auth) {
+      return;
+    }
+
+    if (user.emailVerified || !isPasswordUser(user)) {
+      return;
+    }
+
+    await signOut(auth);
+    await clearSessionCredentials();
+    throw new Error("auth/email-not-verified");
+  };
+
+  const confirmAction = (title: string, message: string) => {
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && typeof window.confirm === "function") {
+        return Promise.resolve(window.confirm(`${title}\n${message}`));
+      }
+      return Promise.resolve(false);
+    }
+
+    return new Promise<boolean>((resolve) => {
+      Alert.alert(title, message, [
+        {
+          text: t('cancel'),
+          style: "cancel",
+          onPress: () => resolve(false),
+        },
+        {
+          text: t('confirm'),
+          style: "destructive",
+          onPress: () => resolve(true),
+        },
+      ]);
+    });
   };
 
   const parseAuthErrorMessage = (error: unknown) => {
@@ -512,8 +937,371 @@ export default function App() {
     ) {
       return t('invalidCredentials');
     }
+    if (raw.includes("auth/email-not-verified")) {
+      return t('emailNotVerified');
+    }
 
     return raw;
+  };
+
+  const normalizeImportItems = (payload: unknown): ImportItem[] => {
+    if (!payload || typeof payload !== "object") {
+      return [];
+    }
+
+    const maybeItems =
+      (payload as { items?: unknown }).items ??
+      (payload as { events?: unknown }).events ??
+      (payload as { data?: { items?: unknown } }).data?.items ??
+      [];
+
+    if (!Array.isArray(maybeItems)) {
+      return [];
+    }
+
+    const normalized = maybeItems
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return null;
+        }
+
+        const rawDate =
+          (entry as { date?: string }).date ??
+          (entry as { pickupDate?: string }).pickupDate ??
+          "";
+        const rawType =
+          (entry as { wasteType?: string }).wasteType ??
+          (entry as { type?: string }).type ??
+          "";
+
+        const date = String(rawDate).trim();
+        const wasteType = String(rawType).trim();
+
+        if (!date || !wasteType) {
+          return null;
+        }
+
+        return { date, wasteType };
+      })
+      .filter(Boolean) as ImportItem[];
+
+    const deduped = new Map<string, ImportItem>();
+    for (const item of normalized) {
+      const key = `${item.date}__${item.wasteType.toLowerCase()}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, item);
+      }
+    }
+
+    return Array.from(deduped.values());
+  };
+
+  const onPickImportFile = async () => {
+    setImportError("");
+    setIsImporting(true);
+    setImportProgress(null);
+    setImportRawText("");
+
+    try {
+      let fileUri = "";
+      let fileName = "import.jpg";
+      let mimeType = "image/jpeg";
+      let pickedSize: number | null = null;
+
+      if (Platform.OS === "web") {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ["image/*"],
+          copyToCacheDirectory: true,
+          multiple: false,
+        });
+
+        if (result.canceled || !result.assets?.length) {
+          return;
+        }
+
+        const file = result.assets[0];
+        fileUri = file.uri;
+        fileName = file.name ?? fileName;
+        mimeType = file.mimeType ?? mimeType;
+        pickedSize =
+          typeof (file as { size?: number }).size === "number"
+            ? (file as { size?: number }).size ?? null
+            : null;
+        setShowMenuModal(false);
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (permission.status !== "granted") {
+          const message = t('importNoGalleryPermission');
+          setImportError(message);
+          notify(t('error'), message);
+          return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 1,
+        });
+
+        if (result.canceled || !result.assets?.length) {
+          return;
+        }
+
+        const file = result.assets[0];
+        fileUri = file.uri;
+        fileName = file.fileName ?? `import_${Date.now()}.jpg`;
+        mimeType = file.mimeType ?? mimeType;
+        setShowMenuModal(false);
+      }
+
+      let fileSize = pickedSize ?? 0;
+
+      if (Platform.OS !== "web") {
+        const fileInfo = await FileSystem.getInfoAsync(fileUri, { size: true });
+        const infoSize =
+          fileInfo.exists && "size" in fileInfo
+            ? (fileInfo as FileSystem.FileInfo & { size?: number }).size ?? 0
+            : 0;
+        fileSize = pickedSize ?? infoSize;
+      }
+
+      if (fileSize > MAX_IMPORT_FILE_SIZE_BYTES) {
+        const message = t('importTooLarge');
+        setImportError(message);
+        notify(t('error'), message);
+        return;
+      }
+
+      const importViaEndpoint = async () => {
+        if (!IMPORT_ENDPOINT) {
+          throw new Error(t('importMissingEndpoint'));
+        }
+
+        setImportProgress(0.1);
+
+        const dataBase64 =
+          Platform.OS === "web"
+            ? dataUrlToBase64(await readWebFileAsDataUrl(fileUri))
+            : await FileSystem.readAsStringAsync(fileUri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+
+        setImportProgress(0.45);
+
+        const response = await fetch(IMPORT_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fileName,
+            mimeType,
+            dataBase64,
+            locale: language,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`${response.status} ${response.statusText}`.trim());
+        }
+
+        setImportProgress(0.85);
+        const payload = await response.json();
+        setImportProgress(1);
+        const rawText =
+          typeof (payload as { rawText?: string }).rawText === "string"
+            ? (payload as { rawText?: string }).rawText
+            : "";
+        if (rawText) {
+          setImportRawText(rawText);
+        }
+        return normalizeImportItems(payload);
+      };
+
+      const items = await importViaEndpoint();
+
+      if (!items.length) {
+        const message = t('importNoItems');
+        setImportError(message);
+        notify(t('error'), message);
+        return;
+      }
+
+      setImportItems(items);
+      setImportFileName(fileName);
+      setShowImportRaw(false);
+      setShowImportModal(true);
+
+      if (db && userUid) {
+        try {
+          await setDoc(
+            doc(db, "users", userUid),
+            {
+              importCount: increment(1),
+              lastImportAt: Timestamp.now(),
+            },
+            { merge: true },
+          );
+        } catch {
+          // best-effort only
+        }
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('importFileError');
+      setImportError(message);
+      notify(t('error'), message);
+    } finally {
+      setImportProgress(null);
+      setIsImporting(false);
+    }
+  };
+
+  const addImportedEvent = async (
+    date: string,
+    wasteType: string,
+    notificationsAllowed: boolean,
+  ) => {
+    if (!db || !currentHouseholdId || !userUid) {
+      throw new Error(t('noHouseholdError'));
+    }
+
+    const normalizedDate = date.trim();
+    const normalizedType = wasteType.trim();
+
+    if (!normalizedDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      return { saved: false, reason: "invalid-date" };
+    }
+
+    if (isDateInPast(normalizedDate, getTodayKey())) {
+      return { saved: false, reason: "past-date" };
+    }
+
+    if (!normalizedType) {
+      return { saved: false, reason: "missing-type" };
+    }
+
+    const existingKey = `${normalizedDate}__${normalizedType.toLowerCase()}`;
+    const existingSet = new Set(
+      events.map((item) => `${item.date}__${item.wasteType.toLowerCase()}`),
+    );
+
+    if (existingSet.has(existingKey)) {
+      return { saved: false, reason: "duplicate" };
+    }
+
+    const notificationId = notificationsAllowed
+      ? await scheduleDayBeforeNotification(
+          normalizedDate,
+          normalizedType,
+          notificationTime,
+        )
+      : undefined;
+
+    const householdRef = doc(db, "households", currentHouseholdId);
+    const eventsRef = collection(householdRef, "events");
+
+    const eventPayload: {
+      date: string;
+      wasteType: string;
+      createdAt: Timestamp;
+      householdId: string;
+      createdByUid: string;
+      createdByEmail?: string;
+      notificationId?: string;
+    } = {
+      date: normalizedDate,
+      wasteType: normalizedType,
+      createdAt: Timestamp.now(),
+      householdId: currentHouseholdId,
+      createdByUid: userUid,
+    };
+
+    if (userEmail) {
+      eventPayload.createdByEmail = userEmail;
+    }
+
+    if (notificationId) {
+      eventPayload.notificationId = notificationId;
+    }
+
+    const docRef = await addDoc(eventsRef, eventPayload);
+
+    return {
+      saved: true,
+      event: {
+        id: docRef.id,
+        date: normalizedDate,
+        wasteType: normalizedType,
+        notificationId,
+      } as TrashEvent,
+    };
+  };
+
+  const onSaveImportedEvents = async () => {
+    if (isSavingImports) {
+      return;
+    }
+
+    if (!importItems.length) {
+      setShowImportModal(false);
+      return;
+    }
+
+    const firestore = db;
+    if (!firestore || !currentHouseholdId || !userUid) {
+      notify(t('error'), t('noHouseholdError'));
+      return;
+    }
+
+    setIsSavingImports(true);
+
+    try {
+      const notificationsAllowed =
+        Platform.OS === "web" ? false : await requestNotificationsPermission();
+
+      let added = 0;
+      let skipped = 0;
+      const addedEvents: TrashEvent[] = [];
+
+      for (const item of importItems) {
+        try {
+          const result = await addImportedEvent(
+            item.date,
+            item.wasteType,
+            notificationsAllowed,
+          );
+
+          if (result.saved && result.event) {
+            added += 1;
+            addedEvents.push(result.event);
+          } else {
+            skipped += 1;
+          }
+        } catch {
+          skipped += 1;
+        }
+      }
+
+      if (addedEvents.length) {
+        setEvents((previous) => {
+          const next = [...previous, ...addedEvents];
+          return next.sort((left, right) => left.date.localeCompare(right.date));
+        });
+      }
+
+      notify(t('ok'), t('importSaved'));
+      setShowImportModal(false);
+      setImportItems([]);
+      setImportFileName("");
+      setImportRawText("");
+      setShowImportRaw(false);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('failedAddEvent');
+      notify(t('error'), message);
+    } finally {
+      setIsSavingImports(false);
+    }
   };
 
   const saveSessionCredentials = async (
@@ -854,7 +1642,8 @@ export default function App() {
           return;
         }
 
-        await loginUser(savedEmail, savedPassword);
+        const credential = await loginUser(savedEmail, savedPassword);
+        await ensureEmailVerified(credential.user);
         setAutoLoginStatus("success");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -889,6 +1678,7 @@ export default function App() {
   useEffect(() => {
     if (!showMenuModal) {
       setShowHouseholdHelp(false);
+      setShowImportHelp(false);
     }
   }, [showMenuModal]);
 
@@ -1257,27 +2047,20 @@ export default function App() {
         "19:00",
       );
 
-      setUserEmail(registeredEmail);
-      setUserUid(uid);
-      setCurrentHouseholdId(assignment.householdId);
-      setHouseholdSecretCode(assignment.secretCode);
-      setNotificationTime("19:00");
-      setNotificationTimeInput("19:00");
-      setHouseholdInviteCode("");
-      setRegisterError("");
-
-      // Wyświetl użytkownikowi co się stało (dołączył czy utworzono nowe)
-      if (inputCode) {
-        notify(t('ok'), t('joinedHousehold'));
-      } else {
-        notify(t('ok'), t('createdHousehold'));
+      try {
+        await sendEmailVerification(credential.user);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t('verificationFailed');
+        notify(t('error'), message);
       }
 
-      await saveSessionCredentials(
-        registeredEmail,
-        password,
-        credential.user.refreshToken,
-      );
+      if (auth) {
+        await signOut(auth);
+      }
+      await clearSessionCredentials();
+      setHouseholdInviteCode("");
+      setRegisterError("");
+      notify(t('ok'), t('verificationSent'));
     } catch (error) {
       const msg = parseAuthErrorMessage(error);
       setRegisterError(msg);
@@ -1289,6 +2072,7 @@ export default function App() {
 
   const onLogin = async () => {
     setLoginError("");
+    setNeedsEmailVerification(false);
     const normalizedEmail = email.trim();
 
     if (!normalizedEmail) {
@@ -1327,6 +2111,15 @@ export default function App() {
     try {
       try {
         const credential = await loginUser(normalizedEmail, password);
+        try {
+          await ensureEmailVerified(credential.user);
+        } catch (verifyError) {
+          const msg = parseAuthErrorMessage(verifyError);
+          setLoginError(msg);
+          setNeedsEmailVerification(true);
+          notify(t('loginError'), msg);
+          return;
+        }
         await saveSessionCredentials(
           normalizedEmail,
           password,
@@ -1355,6 +2148,31 @@ export default function App() {
     }
   };
 
+  const onResendVerification = async () => {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail || !password) {
+      notify(t('loginError'), t('enterEmail'));
+      return;
+    }
+
+    setIsLoggingIn(true);
+    try {
+      const credential = await loginUser(normalizedEmail, password);
+      await sendEmailVerification(credential.user);
+      if (auth) {
+        await signOut(auth);
+      }
+      await clearSessionCredentials();
+      notify(t('ok'), t('verificationSent'));
+      setNeedsEmailVerification(false);
+    } catch (error) {
+      const msg = parseAuthErrorMessage(error);
+      notify(t('loginError'), msg || t('verificationFailed'));
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
   const onLogout = async () => {
     if (!auth) {
       return;
@@ -1373,6 +2191,121 @@ export default function App() {
       const message =
         error instanceof Error ? error.message : t('failedLogout');
       notify(t('error'), message);
+    }
+  };
+
+  const onGoogleSignIn = async () => {
+    if (!auth) {
+      notify(t('error'), t('firebaseNotConfigured'));
+      return;
+    }
+
+    setIsLoggingIn(true);
+    setLoginError("");
+
+    try {
+      if (Platform.OS === "web") {
+        if (!GOOGLE_WEB_CLIENT_ID) {
+          notify(t('loginError'), t('googleClientMissing'));
+          return;
+        }
+
+        const provider = new GoogleAuthProvider();
+        const credential = await signInWithPopup(auth, provider);
+        const uid = credential.user.uid;
+        const mail = credential.user.email ?? null;
+        setUserEmail(mail);
+        setUserUid(uid);
+        await ensureUserHousehold(uid, mail);
+        return;
+      }
+
+      if (!hasGoogleClientIds || !googleRequest) {
+        notify(t('loginError'), t('googleClientMissing'));
+        return;
+      }
+
+      const result = await promptGoogleSignIn();
+      if (result?.type !== "success") {
+        return;
+      }
+
+      const { id_token: idToken, access_token: accessToken } = result.params ?? {};
+      if (!idToken && !accessToken) {
+        notify(t('loginError'), t('googleSignInFailed'));
+        return;
+      }
+
+      const credential = GoogleAuthProvider.credential(idToken, accessToken);
+      const signedIn = await signInWithCredential(auth, credential);
+      const uid = signedIn.user.uid;
+      const mail = signedIn.user.email ?? null;
+      setUserEmail(mail);
+      setUserUid(uid);
+      await ensureUserHousehold(uid, mail);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('googleSignInFailed');
+      setLoginError(message);
+      notify(t('loginError'), message);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const onSendFeedback = async () => {
+    if (isSendingFeedback) {
+      return;
+    }
+
+    const subject = feedbackSubject.trim();
+    const message = feedbackMessage.trim();
+
+    if (!subject || !message) {
+      const msg = t('feedbackMissing');
+      setFeedbackError(msg);
+      notify(t('error'), msg);
+      return;
+    }
+
+    if (!FEEDBACK_ENDPOINT) {
+      const msg = t('feedbackMissingEndpoint');
+      setFeedbackError(msg);
+      notify(t('error'), msg);
+      return;
+    }
+
+    setIsSendingFeedback(true);
+    setFeedbackError("");
+
+    try {
+      const response = await fetch(FEEDBACK_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject,
+          message,
+          userUid,
+          userEmail,
+          appVersion: appVersionLabel,
+          platform: Platform.OS,
+          locale: language,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`.trim());
+      }
+
+      setFeedbackSubject("");
+      setFeedbackMessage("");
+      setShowFeedbackModal(false);
+      notify(t('ok'), t('feedbackSent'));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : t('feedbackFailed');
+      setFeedbackError(msg);
+      notify(t('error'), msg);
+    } finally {
+      setIsSendingFeedback(false);
     }
   };
 
@@ -1604,7 +2537,7 @@ export default function App() {
         return;
       }
 
-      notify(t('ok'), t('timeSaved'));
+      notify(t('ok'), t('actionSuccess'));
     } catch (error) {
       const message =
         error instanceof Error
@@ -1665,6 +2598,81 @@ export default function App() {
       notify(t('error'), message);
     } finally {
       setIsSendingTestNotification(false);
+    }
+  };
+
+  const onClearAllEvents = async () => {
+    if (isClearingAllEvents) {
+      return;
+    }
+
+    if (!isDevAdmin) {
+      notify(t('error'), t('accessDenied'));
+      return;
+    }
+
+    const firestore = db;
+    if (!firestore || !currentHouseholdId || !userUid) {
+      notify(t('error'), t('noHouseholdError'));
+      return;
+    }
+
+    const confirmed = await confirmAction(
+      t('devClearUserTitle'),
+      t('devClearUserBody'),
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsClearingAllEvents(true);
+
+    try {
+      const eventsRef = collection(
+        doc(firestore, "households", currentHouseholdId),
+        "events",
+      );
+      const q = query(eventsRef, where("createdByUid", "==", userUid));
+      const snapshot = await getDocs(q);
+
+      const userEvents = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data() as { notificationId?: string };
+        return { id: docSnap.id, notificationId: data.notificationId };
+      });
+
+      if (Platform.OS !== "web") {
+        for (const item of userEvents) {
+          if (item.notificationId) {
+            try {
+              await Notifications.cancelScheduledNotificationAsync(
+                item.notificationId,
+              );
+            } catch {
+              // best-effort
+            }
+          }
+        }
+      }
+
+      await Promise.all(
+        userEvents.map((item) =>
+          deleteDoc(
+            doc(firestore, "households", currentHouseholdId, "events", item.id),
+          ),
+        ),
+      );
+
+      setEvents((previous) =>
+        previous.filter((item) => item.id && !userEvents.some((u) => u.id === item.id)),
+      );
+      notify(t('ok'), t('devClearUserDone'));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('devClearUserFailed');
+      notify(t('error'), message);
+    } finally {
+      setIsClearingAllEvents(false);
     }
   };
 
@@ -1735,11 +2743,14 @@ export default function App() {
         <View
           style={[
             styles.headerCard,
-            { position: 'relative', backgroundColor: theme.cardBg, borderColor: theme.border },
+            {
+              position: 'relative',
+              backgroundColor: theme.cardBg,
+              borderColor: theme.border,
+            },
           ]}
-          pointerEvents="box-none"
         >  
-          <View style={styles.headerActions} pointerEvents="auto">
+          <View style={styles.headerActions}> 
             <TouchableOpacity
               style={[
                 styles.themeToggle,
@@ -1798,6 +2809,7 @@ export default function App() {
               setEmail(t);
               setLoginError("");
               setRegisterError("");
+              setNeedsEmailVerification(false);
             }}
             autoCapitalize="none"
             keyboardType="email-address"
@@ -1812,10 +2824,24 @@ export default function App() {
               setPassword(t);
               setLoginError("");
               setRegisterError("");
+              setNeedsEmailVerification(false);
             }}
             secureTextEntry
             style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary }]}
           />
+          <TouchableOpacity
+            style={[
+              styles.googleButton,
+              { backgroundColor: theme.buttonBg, borderColor: theme.border },
+              isLoggingIn && styles.disabledButton,
+            ]}
+            onPress={onGoogleSignIn}
+            disabled={isLoggingIn}
+          >
+            <Text style={[styles.googleButtonText, { color: theme.textPrimary }]}> 
+              {t('loginWithGoogle')}
+            </Text>
+          </TouchableOpacity>
           <TextInput
             placeholder={t('householdPlaceholder')}
             placeholderTextColor={theme.textMuted}
@@ -1830,6 +2856,23 @@ export default function App() {
           ) : null}
           {registerError ? (
             <Text style={styles.modalError}>{registerError}</Text>
+          ) : null}
+          {needsEmailVerification ? (
+            <TouchableOpacity
+              style={[
+                styles.secondaryButton,
+                { backgroundColor: theme.buttonBg },
+                isLoggingIn && styles.disabledButton,
+              ]}
+              onPress={onResendVerification}
+              disabled={isLoggingIn}
+            >
+              <Text
+                style={[styles.secondaryButtonText, { color: theme.textPrimary }]}
+              >
+                {t('resendVerification')}
+              </Text>
+            </TouchableOpacity>
           ) : null}
 
           <View style={styles.actionRow}>
@@ -2034,6 +3077,8 @@ export default function App() {
                   textAlign: "center",
                   alignSelf: "center",
                   flex: 1,
+                  flexShrink: 1,
+                  marginHorizontal: 6,
                 },
                 dayHeader: {
                   color: isLight ? "#475569" : theme.textMuted,
@@ -2041,7 +3086,7 @@ export default function App() {
                   textTransform: "uppercase",
                 },
               },
-            }}
+            } as any}
             style={[
               styles.calendar,
               {
@@ -2143,6 +3188,31 @@ export default function App() {
               { backgroundColor: theme.cardBg, borderColor: theme.border },
             ]}
           >
+            {isDevBuild && importRawText ? (
+              <TouchableOpacity
+                style={[styles.importRawToggle, { backgroundColor: theme.buttonBg }]}
+                onPress={() => setShowImportRaw((prev) => !prev)}
+              >
+                <Text style={[styles.importRawToggleText, { color: theme.textPrimary }]}> 
+                  {showImportRaw ? t('importHideRaw') : t('importShowRaw')}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {isDevBuild && showImportRaw && importRawText ? (
+              <View style={styles.importRawBlock}>
+                <Text style={[styles.importRawLabel, { color: theme.textMuted }]}> 
+                  {t('importRawLabel')}
+                </Text>
+                <ScrollView
+                  style={styles.importRawScroll}
+                  contentContainerStyle={styles.importRawContent}
+                >
+                  <Text style={[styles.importRawText, { color: theme.textSecondary }]}> 
+                    {importRawText}
+                  </Text>
+                </ScrollView>
+              </View>
+            ) : null}
             <Text style={[styles.modalTitle, { color: theme.textPrimary }]}> 
               {t('addTrashTitle')}
             </Text>
@@ -2252,6 +3322,107 @@ export default function App() {
       </Modal>
 
       <Modal
+        visible={showImportModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowImportModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+          >
+            {isDevBuild && importRawText ? (
+              <TouchableOpacity
+                style={[styles.importRawToggle, { backgroundColor: theme.buttonBg }]}
+                onPress={() => setShowImportRaw((prev) => !prev)}
+              >
+                <Text style={[styles.importRawToggleText, { color: theme.textPrimary }]}> 
+                  {showImportRaw ? t('importHideRaw') : t('importShowRaw')}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {isDevBuild && showImportRaw && importRawText ? (
+              <View style={styles.importRawBlock}>
+                <Text style={[styles.importRawLabel, { color: theme.textMuted }]}> 
+                  {t('importRawLabel')}
+                </Text>
+                <ScrollView
+                  style={styles.importRawScroll}
+                  contentContainerStyle={styles.importRawContent}
+                >
+                  <Text style={[styles.importRawText, { color: theme.textSecondary }]}> 
+                    {importRawText}
+                  </Text>
+                </ScrollView>
+              </View>
+            ) : null}
+            <ScrollView
+              style={styles.importList}
+              contentContainerStyle={styles.importListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {groupedImportItems.map((section) => (
+                <View key={section.key} style={styles.importSection}>
+                  <Text
+                    style={[styles.importSectionTitle, { color: theme.textPrimary }]}
+                  >
+                    {section.title}
+                  </Text>
+                  <View style={styles.importGrid}>
+                    {section.items.map((item, index) => {
+                      const day = parseDateKey(item.date).day;
+                      const cardColor = getWasteTypeColor(item.wasteType);
+
+                      return (
+                        <View
+                          key={`${item.date}-${index}`}
+                          style={[styles.importCard, { backgroundColor: cardColor }]}
+                        >
+                          <Text style={styles.importCardTypeTop}>
+                            {item.wasteType}
+                          </Text>
+                          <Text style={styles.importCardDay}>
+                            {day || "—"}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton,
+                  { backgroundColor: theme.primary },
+                  isSavingImports && styles.disabledButton,
+                ]}
+                onPress={onSaveImportedEvents}
+                disabled={isSavingImports}
+              >
+                <Text style={[styles.primaryButtonText, { color: theme.onPrimary }]}> 
+                  {isSavingImports ? t('importSaving') : t('importSaveAll')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.secondaryButton, { backgroundColor: theme.buttonBg }]}
+                onPress={() => setShowImportModal(false)}
+              >
+                <Text style={[styles.secondaryButtonText, { color: theme.textPrimary }]}> 
+                  {t('cancel')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={showMenuModal}
         transparent
         animationType="fade"
@@ -2323,6 +3494,78 @@ export default function App() {
                 { backgroundColor: theme.panelBg, borderColor: theme.border },
               ]}
             >
+              <View style={styles.menuLabelRow}>
+                <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
+                  {t('importMenuTitle')}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.infoButton,
+                    { borderColor: theme.border, backgroundColor: theme.buttonBg },
+                  ]}
+                  onPress={() =>
+                    setShowImportHelp((previous) => !previous)
+                  }
+                >
+                  <Text style={[styles.infoButtonText, { color: theme.textPrimary }]}> 
+                    i
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.muted, { color: theme.textMuted }]}> 
+                {t('importMenuHint')}
+              </Text>
+              {showImportHelp ? (
+                <Text style={[styles.tooltipText, { color: theme.textMuted }]}> 
+                  {t('importHelpText')}
+                </Text>
+              ) : null}
+              <TouchableOpacity
+                style={[
+                  styles.menuSaveButton,
+                  { backgroundColor: theme.primary },
+                  isImporting && styles.disabledButton,
+                ]}
+                onPress={onPickImportFile}
+                disabled={isImporting}
+              >
+                <Text style={[styles.menuSaveText, { color: theme.onPrimary }]}> 
+                  {isImporting ? t('importProcessing') : t('importMenuButton')}
+                </Text>
+              </TouchableOpacity>
+              {typeof importProgress === "number" ? (
+                <View style={styles.importProgressBlock}>
+                  <Text style={[styles.importProgressLabel, { color: theme.textMuted }]}> 
+                    {t('importProgressLabel')}
+                  </Text>
+                  <View
+                    style={[
+                      styles.importProgressTrack,
+                      { backgroundColor: theme.inputBg, borderColor: theme.border },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.importProgressFill,
+                        { width: `${Math.round(importProgress * 100)}%`, backgroundColor: theme.accent },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.importProgressValue, { color: theme.textSecondary }]}> 
+                    {Math.round(importProgress * 100)}%
+                  </Text>
+                </View>
+              ) : null}
+              {importError ? (
+                <Text style={styles.modalError}>{importError}</Text>
+              ) : null}
+            </View>
+            <View
+              style={[
+                styles.menuUserBox,
+                { backgroundColor: theme.panelBg, borderColor: theme.border },
+              ]}
+            >
               <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
                 {t('reminderTime')}
               </Text>
@@ -2353,6 +3596,28 @@ export default function App() {
               </TouchableOpacity>
             </View>
             <TouchableOpacity
+              style={[styles.menuSaveButton, { backgroundColor: theme.buttonBg }]}
+              onPress={() => {
+                setFeedbackError("");
+                setShowFeedbackModal(true);
+              }}
+            >
+              <Text style={[styles.menuSaveText, { color: theme.textPrimary }]}> 
+                {t('feedbackButton')}
+              </Text>
+            </TouchableOpacity>
+            {isDevAdmin ? (
+              <TouchableOpacity
+                style={[styles.menuDebugDangerButton, { backgroundColor: theme.dangerBg }]}
+                onPress={onClearAllEvents}
+                disabled={isClearingAllEvents}
+              >
+                <Text style={[styles.menuDebugDangerText, { color: theme.dangerText }]}> 
+                  {isClearingAllEvents ? t('saving') : t('devClearUserButton')}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
               style={[styles.menuLogoutButton, { backgroundColor: theme.dangerBg }]}
               onPress={async () => {
                 setShowMenuModal(false);
@@ -2368,6 +3633,73 @@ export default function App() {
             style={styles.menuBackdrop}
             onPress={() => setShowMenuModal(false)}
           />
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showFeedbackModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFeedbackModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: theme.textPrimary }]}> 
+              {t('feedbackTitle')}
+            </Text>
+            <TextInput
+              value={feedbackSubject}
+              onChangeText={setFeedbackSubject}
+              placeholder={t('feedbackSubjectPlaceholder')}
+              placeholderTextColor={theme.textMuted}
+              style={[
+                styles.input,
+                { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
+              ]}
+            />
+            <TextInput
+              value={feedbackMessage}
+              onChangeText={setFeedbackMessage}
+              placeholder={t('feedbackMessagePlaceholder')}
+              placeholderTextColor={theme.textMuted}
+              multiline
+              style={[
+                styles.feedbackInput,
+                { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
+              ]}
+            />
+            {feedbackError ? (
+              <Text style={styles.modalError}>{feedbackError}</Text>
+            ) : null}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton,
+                  { backgroundColor: theme.primary },
+                  isSendingFeedback && styles.disabledButton,
+                ]}
+                onPress={onSendFeedback}
+                disabled={isSendingFeedback}
+              >
+                <Text style={[styles.primaryButtonText, { color: theme.onPrimary }]}> 
+                  {isSendingFeedback ? t('saving') : t('feedbackSend')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.secondaryButton, { backgroundColor: theme.buttonBg }]}
+                onPress={() => setShowFeedbackModal(false)}
+              >
+                <Text style={[styles.secondaryButtonText, { color: theme.textPrimary }]}> 
+                  {t('cancel')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </View>
@@ -2501,6 +3833,36 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 10,
   },
+  importButton: {
+    marginTop: 8,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  importButtonText: {
+    fontWeight: "700",
+  },
+  importProgressBlock: {
+    marginTop: 10,
+    gap: 6,
+  },
+  importProgressLabel: {
+    fontSize: 12,
+  },
+  importProgressTrack: {
+    height: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  importProgressFill: {
+    height: 8,
+    borderRadius: 999,
+  },
+  importProgressValue: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
   sectionHeader: {
     fontSize: 15,
     fontWeight: "700",
@@ -2542,6 +3904,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#0f172a",
     color: "#e5e7eb",
     marginBottom: 10,
+  },
+  googleButton: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  googleButtonText: {
+    fontWeight: "700",
   },
   dropdownTrigger: {
     borderWidth: 1,
@@ -2702,13 +4074,93 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontSize: 12,
   },
+  feedbackInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 120,
+    textAlignVertical: "top",
+    marginBottom: 10,
+  },
+  importRawToggle: {
+    alignSelf: "flex-end",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  importRawToggleText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  importList: {
+    maxHeight: 260,
+    marginBottom: 10,
+  },
+  importListContent: {
+    gap: 10,
+  },
+  importRawBlock: {
+    marginBottom: 10,
+    gap: 6,
+  },
+  importRawLabel: {
+    fontSize: 12,
+  },
+  importRawScroll: {
+    maxHeight: 140,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#1f2937",
+  },
+  importRawContent: {
+    padding: 8,
+  },
+  importRawText: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  importSection: {
+    gap: 8,
+  },
+  importSectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  importGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  importCard: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    padding: 8,
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  importCardTypeTop: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    textAlign: "center",
+  },
+  importCardDay: {
+    color: "#ffffff",
+    fontSize: 22,
+    fontWeight: "800",
+    lineHeight: 26,
+  },
   menuOverlay: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: "rgba(2, 6, 23, 0.6)",
   },
   menuBackdrop: {
     flex: 1,
+    backgroundColor: "rgba(2, 6, 23, 0.6)",
   },
   menuPanel: {
     width: "78%",
