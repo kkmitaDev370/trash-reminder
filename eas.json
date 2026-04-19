@@ -21,7 +21,10 @@
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "trash-reminder-app-8e957",
         "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "trash-reminder-app-8e957.firebasestorage.app",
         "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "1011735082727",
-        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:1011735082727:web:96538405e62dca7b71d442"
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:1011735082727:web:96538405e62dca7b71d442",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "1011735082727-32dm3c648mevmnj14eahcn5sph7gncih.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "1011735082727-ievv74mvnh2b8lvt1d0a7jajq7q8r9e8.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "1011735082727-1g3t8536l7a8bn49aoniafvtc763ggrl.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk"
@@ -42,7 +45,10 @@
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "trash-reminder-app-8e957",
         "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "trash-reminder-app-8e957.firebasestorage.app",
         "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "1011735082727",
-        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:1011735082727:web:96538405e62dca7b71d442"
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:1011735082727:web:96538405e62dca7b71d442",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "1011735082727-32dm3c648mevmnj14eahcn5sph7gncih.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "1011735082727-ievv74mvnh2b8lvt1d0a7jajq7q8r9e8.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "1011735082727-1g3t8536l7a8bn49aoniafvtc763ggrl.apps.googleusercontent.com"
       }
     }
   },
