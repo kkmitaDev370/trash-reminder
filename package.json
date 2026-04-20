@@ -1,6 +1,6 @@
 {
   "name": "trash-reminder",
-  "version": "1.0.29",
+  "version": "1.0.35",
   "main": "index.js",
   "scripts": {
     "start": "cross-env EXPO_NO_BROWSER=1 BROWSER=none expo start --web",

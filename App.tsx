@@ -40,6 +40,7 @@ import {
   query,
   setDoc,
   Timestamp,
+  updateDoc,
   where,
 } from "firebase/firestore";
 import * as Notifications from "expo-notifications";
@@ -186,10 +187,12 @@ const lightTheme = {
 
 
 const MIXED_WASTE_DAY_COLOR = "#7c3aed";
-const CALENDAR_DAY_SIZE = 36;
+const CALENDAR_DAY_SIZE = 32;
 const SESSION_CREDENTIALS_KEY = "trash_reminder_session_credentials_v1";
 const SESSION_TOKEN_KEY = "trash_reminder_session_token_v1";
 const THEME_PREFERENCE_KEY = "trash_reminder_theme_v1";
+const LOCAL_EVENTS_KEY = "trash_reminder_local_events_v1";
+const LOCAL_NOTIFICATION_TIME_KEY = "trash_reminder_local_notification_time_v1";
 const MAX_IMPORT_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 const FIREBASE_PROJECT_ID =
   (process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "").trim();
@@ -224,6 +227,9 @@ const GOOGLE_ANDROID_CLIENT_ID =
   (process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? "").trim();
 const GOOGLE_IOS_CLIENT_ID =
   (process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? "").trim();
+const GOOGLE_ANDROID_REDIRECT_URI = GOOGLE_ANDROID_CLIENT_ID
+  ? `com.googleusercontent.apps.${GOOGLE_ANDROID_CLIENT_ID.replace(".apps.googleusercontent.com", "")}:/oauthredirect`
+  : undefined;
 const DEFAULT_FEEDBACK_ENDPOINT = FIREBASE_PROJECT_ID
   ? `https://${DEFAULT_FUNCTION_REGION}-${FIREBASE_PROJECT_ID}.cloudfunctions.net/feedbackSubmit`
   : "";
@@ -231,6 +237,94 @@ const FEEDBACK_ENDPOINT =
   normalizeImportEndpoint(
     process.env.EXPO_PUBLIC_FEEDBACK_URL ?? "",
   ) || DEFAULT_FEEDBACK_ENDPOINT;
+
+const sortEventsByDate = (items: TrashEvent[]) =>
+  [...items].sort((left, right) => left.date.localeCompare(right.date));
+
+const readStorageItem = async (key: string) => {
+  if (Platform.OS === "web") {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return null;
+    }
+
+    return window.localStorage.getItem(key);
+  }
+
+  return AsyncStorage.getItem(key);
+};
+
+const writeStorageItem = async (key: string, value: string) => {
+  if (Platform.OS === "web") {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return;
+    }
+
+    window.localStorage.setItem(key, value);
+    return;
+  }
+
+  await AsyncStorage.setItem(key, value);
+};
+
+const removeStorageItem = async (key: string) => {
+  if (Platform.OS === "web") {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return;
+    }
+
+    window.localStorage.removeItem(key);
+    return;
+  }
+
+  await AsyncStorage.removeItem(key);
+};
+
+const readLocalEvents = async (): Promise<TrashEvent[]> => {
+  const raw = await readStorageItem(LOCAL_EVENTS_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((item): item is TrashEvent => {
+        if (!item || typeof item !== "object") {
+          return false;
+        }
+
+        const candidate = item as Partial<TrashEvent>;
+        return typeof candidate.id === "string" &&
+          typeof candidate.date === "string" &&
+          typeof candidate.wasteType === "string";
+      })
+      .map((item) => ({
+        id: item.id,
+        date: item.date,
+        wasteType: item.wasteType,
+        notificationId: item.notificationId,
+      }));
+  } catch {
+    return [];
+  }
+};
+
+const writeLocalEvents = async (items: TrashEvent[]) => {
+  await writeStorageItem(LOCAL_EVENTS_KEY, JSON.stringify(sortEventsByDate(items)));
+};
+
+const readLocalNotificationTime = async () => {
+  const raw = await readStorageItem(LOCAL_NOTIFICATION_TIME_KEY);
+  return typeof raw === "string" ? raw.trim() : "";
+};
+
+const writeLocalNotificationTime = async (value: string) => {
+  await writeStorageItem(LOCAL_NOTIFICATION_TIME_KEY, value);
+};
 
 const getWasteTypeColor = (wasteType: string) => {
   const normalized = wasteType.trim().toLowerCase();
@@ -669,6 +763,7 @@ export default function App() {
   const [isSessionBootstrapping, setIsSessionBootstrapping] = useState(
     Platform.OS !== "web",
   );
+  const [hasLoadedAnonymousData, setHasLoadedAnonymousData] = useState(false);
   const [autoLoginStatus, setAutoLoginStatus] = useState("idle");
   const [autoLoginError, setAutoLoginError] = useState("");
   const [sessionDebugInfo, setSessionDebugInfo] = useState<{
@@ -693,6 +788,8 @@ export default function App() {
   const [isSessionDebugLoading, setIsSessionDebugLoading] = useState(false);
   const isAuthenticated = Boolean(userUid);
   const isDevAdmin = Boolean(isDevBuild && userUid);
+  const isCloudStorageActive = isAuthenticated;
+  const isAiAvailable = Boolean(IMPORT_ENDPOINT);
   const appVersionLabel = (() => {
     const nativeVersion = Application.nativeApplicationVersion ?? "dev";
     const nativeBuild = Application.nativeBuildVersion ?? "dev";
@@ -850,14 +947,19 @@ export default function App() {
   );
 
   const [googleRequest, , promptGoogleSignIn] =
-    Google.useAuthRequest(
+    Google.useIdTokenAuthRequest(
       hasGoogleClientIds
         ? {
             webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
             androidClientId: GOOGLE_ANDROID_CLIENT_ID || undefined,
             iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
+            scopes: ["openid", "profile", "email"],
+            selectAccount: true,
           }
         : { clientId: "disabled" },
+      Platform.OS === "android" && GOOGLE_ANDROID_REDIRECT_URI
+        ? { native: GOOGLE_ANDROID_REDIRECT_URI }
+        : undefined,
     );
 
   const notify = (title: string, message?: string) => {
@@ -1161,10 +1263,6 @@ export default function App() {
     wasteType: string,
     notificationsAllowed: boolean,
   ) => {
-    if (!db || !currentHouseholdId || !userUid) {
-      throw new Error(t('noHouseholdError'));
-    }
-
     const normalizedDate = date.trim();
     const normalizedType = wasteType.trim();
 
@@ -1196,6 +1294,22 @@ export default function App() {
           notificationTime,
         )
       : undefined;
+
+    if (!isAuthenticated) {
+      return {
+        saved: true,
+        event: {
+          id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          date: normalizedDate,
+          wasteType: normalizedType,
+          notificationId,
+        } as TrashEvent,
+      };
+    }
+
+    if (!db || !currentHouseholdId || !userUid) {
+      throw new Error(t('noHouseholdError'));
+    }
 
     const householdRef = doc(db, "households", currentHouseholdId);
     const eventsRef = collection(householdRef, "events");
@@ -1248,7 +1362,7 @@ export default function App() {
     }
 
     const firestore = db;
-    if (!firestore || !currentHouseholdId || !userUid) {
+    if (isAuthenticated && (!firestore || !currentHouseholdId || !userUid)) {
       notify(t('error'), t('noHouseholdError'));
       return;
     }
@@ -1283,10 +1397,12 @@ export default function App() {
       }
 
       if (addedEvents.length) {
-        setEvents((previous) => {
-          const next = [...previous, ...addedEvents];
-          return next.sort((left, right) => left.date.localeCompare(right.date));
-        });
+        const nextEvents = sortEventsByDate([...events, ...addedEvents]);
+        setEvents(nextEvents);
+
+        if (!isAuthenticated) {
+          await writeLocalEvents(nextEvents);
+        }
       }
 
       notify(t('ok'), t('importSaved'));
@@ -1676,6 +1792,73 @@ export default function App() {
   }, [showMenuModal, userUid, userEmail, autoLoginStatus, autoLoginError]);
 
   useEffect(() => {
+    if (isAuthenticated) {
+      setHasLoadedAnonymousData(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      setIsEventsLoading(true);
+
+      try {
+        const [savedEvents, savedTime] = await Promise.all([
+          readLocalEvents(),
+          readLocalNotificationTime(),
+        ]);
+
+        const today = getTodayKey();
+        const upcoming = savedEvents.filter((item) => !isDateInPast(item.date, today));
+        const past = savedEvents.filter((item) => isDateInPast(item.date, today));
+
+        if (past.length && Platform.OS !== "web") {
+          for (const item of past) {
+            if (!item.notificationId) {
+              continue;
+            }
+
+            try {
+              await Notifications.cancelScheduledNotificationAsync(item.notificationId);
+            } catch {
+              // ignore stale notification cleanup failures
+            }
+          }
+        }
+
+        if (past.length) {
+          await writeLocalEvents(upcoming);
+        }
+
+        if (!cancelled) {
+          setEvents(sortEventsByDate(upcoming));
+
+          if (savedTime && isValidTimeHHmm(savedTime)) {
+            setNotificationTime(savedTime);
+            setNotificationTimeInput(savedTime);
+          } else {
+            setNotificationTime("19:00");
+            setNotificationTimeInput("19:00");
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setEvents([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setHasLoadedAnonymousData(true);
+          setIsEventsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
     if (!showMenuModal) {
       setShowHouseholdHelp(false);
       setShowImportHelp(false);
@@ -1709,8 +1892,7 @@ export default function App() {
   }, [userUid, userEmail]);
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !db || !userUid || !currentHouseholdId) {
-      setEvents([]);
+    if (!isAuthenticated || !isFirebaseConfigured || !db || !userUid || !currentHouseholdId) {
       setIsEventsLoading(false);
       return;
     }
@@ -1808,6 +1990,93 @@ export default function App() {
     };
   }, [currentHouseholdId, userUid, userEmail]);
 
+  useEffect(() => {
+    if (!isAuthenticated || !db || !userUid || !currentHouseholdId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [localEvents, localTime] = await Promise.all([
+          readLocalEvents(),
+          readLocalNotificationTime(),
+        ]);
+
+        if (cancelled || (!localEvents.length && !localTime)) {
+          return;
+        }
+
+        const householdRef = doc(db, "households", currentHouseholdId);
+        const eventsRef = collection(householdRef, "events");
+        const existingSnapshot = await getDocs(query(eventsRef, orderBy("date", "asc")));
+        const existingKeys = new Set(
+          existingSnapshot.docs.map((item) => {
+            const data = item.data() as { date?: string; wasteType?: string };
+            return `${data.date ?? ""}__${(data.wasteType ?? "").toLowerCase()}`;
+          }),
+        );
+
+        for (const item of localEvents) {
+          const key = `${item.date}__${item.wasteType.toLowerCase()}`;
+          if (existingKeys.has(key)) {
+            continue;
+          }
+
+          const payload: {
+            date: string;
+            wasteType: string;
+            createdAt: Timestamp;
+            householdId: string;
+            createdByUid: string;
+            createdByEmail?: string;
+            notificationId?: string;
+          } = {
+            date: item.date,
+            wasteType: item.wasteType,
+            createdAt: Timestamp.now(),
+            householdId: currentHouseholdId,
+            createdByUid: userUid,
+          };
+
+          if (userEmail) {
+            payload.createdByEmail = userEmail;
+          }
+
+          if (item.notificationId) {
+            payload.notificationId = item.notificationId;
+          }
+
+          await addDoc(eventsRef, payload);
+          existingKeys.add(key);
+        }
+
+        if (localTime && isValidTimeHHmm(localTime)) {
+          await setDoc(
+            doc(db, "users", userUid),
+            {
+              notificationTime: localTime,
+              updatedAt: Timestamp.now(),
+            },
+            { merge: true },
+          );
+        }
+
+        await Promise.all([
+          removeStorageItem(LOCAL_EVENTS_KEY),
+          removeStorageItem(LOCAL_NOTIFICATION_TIME_KEY),
+        ]);
+      } catch {
+        // keep local backup if sync fails
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, currentHouseholdId, userUid, userEmail]);
+
   const requestNotificationsPermission = async () => {
     if (Platform.OS === "web") {
       return false;
@@ -1879,6 +2148,114 @@ export default function App() {
               second: 0,
               repeats: false,
             },
+    });
+  };
+
+  const updateLocalEventNotificationId = async (
+    eventId: string,
+    notificationId?: string,
+  ) => {
+    const localEvents = await readLocalEvents();
+    let changed = false;
+
+    const nextEvents = localEvents.map((item) => {
+      if (item.id !== eventId) {
+        return item;
+      }
+
+      changed = true;
+      return {
+        ...item,
+        notificationId,
+      };
+    });
+
+    if (!changed) {
+      return false;
+    }
+
+    await writeLocalEvents(nextEvents);
+    setEvents((previous) =>
+      previous.map((item) =>
+        item.id === eventId
+          ? {
+              ...item,
+              notificationId,
+            }
+          : item,
+      ),
+    );
+
+    return true;
+  };
+
+  const scheduleNotificationAfterSave = ({
+    eventId,
+    date,
+    wasteType,
+    householdId,
+    storageMode,
+  }: {
+    eventId: string;
+    date: string;
+    wasteType: string;
+    householdId?: string;
+    storageMode: "cloud" | "local";
+  }) => {
+    void (async () => {
+      const hasPermission = await requestNotificationsPermission();
+
+      if (!hasPermission) {
+        notify(
+          t('notificationsTitle'),
+          t('noPermissionNotifications'),
+        );
+        return;
+      }
+
+      const notificationId = await scheduleDayBeforeNotification(
+        date,
+        wasteType,
+        notificationTime,
+      );
+
+      if (!notificationId) {
+        notify(
+          t('notificationsTitle'),
+          t('reminderPast'),
+        );
+        return;
+      }
+
+      if (storageMode === "local") {
+        await updateLocalEventNotificationId(eventId, notificationId);
+        return;
+      }
+
+      if (!db || !householdId) {
+        return;
+      }
+
+      await updateDoc(
+        doc(db, "households", householdId, "events", eventId),
+        {
+          notificationId,
+          updatedAt: Timestamp.now(),
+        },
+      );
+
+      setEvents((previous) =>
+        previous.map((item) =>
+          item.id === eventId
+            ? {
+                ...item,
+                notificationId,
+              }
+            : item,
+        ),
+      );
+    })().catch(() => {
+      // best-effort scheduling after the event is already saved
     });
   };
 
@@ -2337,14 +2714,14 @@ export default function App() {
       return false;
     }
 
-    if (!currentHouseholdId) {
+    if (isAuthenticated && !currentHouseholdId) {
       const message = t('noHouseholdError');
       setModalError(message);
       notify(t('error'), message);
       return false;
     }
 
-    if (!userUid) {
+    if (isAuthenticated && !userUid) {
       const message = t('noUserError');
       setModalError(message);
       notify(t('error'), message);
@@ -2352,76 +2729,78 @@ export default function App() {
     }
 
     try {
-      if (!db) {
+      if (isAuthenticated && !db) {
         const message = t('firebaseNotConfigured');
         setModalError(message);
         notify(t('error'), message);
         return false;
       }
 
-      const hasPermission = await requestNotificationsPermission();
-      const notificationId = hasPermission
-        ? await scheduleDayBeforeNotification(
-            normalizedDate,
-            normalizedType,
-            notificationTime,
-          )
-        : undefined;
+      if (!isAuthenticated) {
+        const localEvent: TrashEvent = {
+          id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          date: normalizedDate,
+          wasteType: normalizedType,
+        };
 
-      if (!hasPermission) {
-        notify(
-          t('notificationsTitle'),
-          t('noPermissionNotifications'),
+        const nextEvents = sortEventsByDate([
+          ...events.filter((item) => item.id !== localEvent.id),
+          localEvent,
+        ]);
+
+        setEvents(nextEvents);
+        await writeLocalEvents(nextEvents);
+
+        scheduleNotificationAfterSave({
+          eventId: localEvent.id,
+          date: normalizedDate,
+          wasteType: normalizedType,
+          storageMode: "local",
+        });
+      } else {
+        const householdRef = doc(db!, "households", currentHouseholdId!);
+        const eventsRef = collection(householdRef, "events");
+
+        const eventPayload: {
+          date: string;
+          wasteType: string;
+          createdAt: Timestamp;
+          householdId: string;
+          createdByUid: string;
+          createdByEmail?: string;
+        } = {
+          date: normalizedDate,
+          wasteType: normalizedType,
+          createdAt: Timestamp.now(),
+          householdId: currentHouseholdId!,
+          createdByUid: userUid!,
+        };
+
+        if (userEmail) {
+          eventPayload.createdByEmail = userEmail;
+        }
+
+        const docRef = await addDoc(eventsRef, eventPayload);
+
+        setEvents((previous) =>
+          sortEventsByDate([
+            ...previous.filter((item) => item.id !== docRef.id),
+            {
+              id: docRef.id,
+              date: normalizedDate,
+              wasteType: normalizedType,
+            },
+          ]),
         );
-      } else if (!notificationId) {
-        notify(
-          t('notificationsTitle'),
-          t('reminderPast'),
-        );
+
+        scheduleNotificationAfterSave({
+          eventId: docRef.id,
+          date: normalizedDate,
+          wasteType: normalizedType,
+          householdId: currentHouseholdId!,
+          storageMode: "cloud",
+        });
       }
-
-      const householdRef = doc(db, "households", currentHouseholdId);
-      const eventsRef = collection(householdRef, "events");
-
-      const eventPayload: {
-        date: string;
-        wasteType: string;
-        createdAt: Timestamp;
-        householdId: string;
-        createdByUid: string;
-        createdByEmail?: string;
-        notificationId?: string;
-      } = {
-        date: normalizedDate,
-        wasteType: normalizedType,
-        createdAt: Timestamp.now(),
-        householdId: currentHouseholdId,
-        createdByUid: userUid,
-      };
-
-      if (userEmail) {
-        eventPayload.createdByEmail = userEmail;
-      }
-
-      if (notificationId) {
-        eventPayload.notificationId = notificationId;
-      }
-
-      const docRef = await addDoc(eventsRef, eventPayload);
-
-      setEvents((previous) => {
-        const next = [
-          ...previous.filter((item) => item.id !== docRef.id),
-          {
-            id: docRef.id,
-            date: normalizedDate,
-            wasteType: normalizedType,
-            notificationId,
-          },
-        ];
-
-        return next.sort((left, right) => left.date.localeCompare(right.date));
-      });
 
       setEventDate("");
       setSelectedWasteType(WASTE_TYPES[language][0]);
@@ -2476,15 +2855,22 @@ export default function App() {
 
   const onDeleteEvent = async (item: TrashEvent) => {
     try {
-      if (!db || !currentHouseholdId) {
-        notify(t('error'), t('firebaseNotConfigured'));
-        return;
-      }
-
       if (item.notificationId && Platform.OS !== "web") {
         await Notifications.cancelScheduledNotificationAsync(
           item.notificationId,
         );
+      }
+
+      if (!isAuthenticated) {
+        const nextEvents = events.filter((event) => event.id !== item.id);
+        setEvents(nextEvents);
+        await writeLocalEvents(nextEvents);
+        return;
+      }
+
+      if (!db || !currentHouseholdId) {
+        notify(t('error'), t('firebaseNotConfigured'));
+        return;
       }
 
       await deleteDoc(
@@ -2507,27 +2893,78 @@ export default function App() {
       return;
     }
 
-    if (!db || !userUid) {
-      notify(t('error'), t('noUserData'));
-      return;
-    }
-
     try {
       setIsSavingNotificationTime(true);
-      await setDoc(
-        doc(db, "users", userUid),
-        {
-          notificationTime: normalizedTime,
-          updatedAt: Timestamp.now(),
-        },
-        { merge: true },
-      );
 
-      setNotificationTime(normalizedTime);
-      setNotificationTimeInput(normalizedTime);
+      let rescheduleResult;
 
-      const rescheduleResult =
-        await rescheduleFutureEventNotifications(normalizedTime);
+      if (!isAuthenticated) {
+        await writeLocalNotificationTime(normalizedTime);
+        setNotificationTime(normalizedTime);
+        setNotificationTimeInput(normalizedTime);
+
+        const permissionGranted =
+          Platform.OS === "web" ? false : await requestNotificationsPermission();
+
+        if (!permissionGranted) {
+          notify(
+            t('notificationsTitle'),
+            t('noPermissionReschedule'),
+          );
+          return;
+        }
+
+        let updated = 0;
+        let skipped = 0;
+        const nextEvents: TrashEvent[] = [];
+
+        for (const item of events) {
+          const notificationId = await scheduleDayBeforeNotification(
+            item.date,
+            item.wasteType,
+            normalizedTime,
+          );
+
+          if (item.notificationId) {
+            try {
+              await Notifications.cancelScheduledNotificationAsync(item.notificationId);
+            } catch {
+              // ignore stale ids
+            }
+          }
+
+          if (!notificationId) {
+            skipped += 1;
+            nextEvents.push({ ...item, notificationId: undefined });
+            continue;
+          }
+
+          updated += 1;
+          nextEvents.push({ ...item, notificationId });
+        }
+
+        setEvents(nextEvents);
+        await writeLocalEvents(nextEvents);
+        rescheduleResult = { updated, skipped, permissionGranted: true };
+      } else {
+        if (!db || !userUid) {
+          notify(t('error'), t('noUserData'));
+          return;
+        }
+
+        await setDoc(
+          doc(db, "users", userUid),
+          {
+            notificationTime: normalizedTime,
+            updatedAt: Timestamp.now(),
+          },
+          { merge: true },
+        );
+
+        setNotificationTime(normalizedTime);
+        setNotificationTimeInput(normalizedTime);
+        rescheduleResult = await rescheduleFutureEventNotifications(normalizedTime);
+      }
 
       if (!rescheduleResult.permissionGranted) {
         notify(
@@ -2703,212 +3140,6 @@ export default function App() {
     );
   }
 
-  if (!isAuthenticated && isSessionBootstrapping) {
-    return (
-    <View style={[styles.container, { backgroundColor: theme.pageBg }]}>
-        {/* {isDevBuild && (
-          <Text style={styles.versionBadge}>{appVersionLabel}</Text>
-        )} */}
-        <View
-          style={[
-            styles.headerCard,
-            { backgroundColor: theme.cardBg, borderColor: theme.border },
-          ]}
-        >
-          <Text style={[styles.title, { color: theme.textPrimary }]}>
-            {t('sessionRestoringTitle')}
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-            {t('sessionRestoringSubtitle')}
-          </Text>
-          <View style={styles.loaderBox}>
-            <ActivityIndicator size="small" color={theme.accent} />
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  if (!isAuthenticated || isRegistering || isLoggingIn) {
-    return (
-      <ScrollView
-        style={[styles.container, { backgroundColor: theme.pageBg }]}
-        contentContainerStyle={styles.containerContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* {isDevBuild && (
-          <Text style={styles.versionBadge}>{appVersionLabel}</Text>
-        )} */}
-        <View
-          style={[
-            styles.headerCard,
-            {
-              position: 'relative',
-              backgroundColor: theme.cardBg,
-              borderColor: theme.border,
-            },
-          ]}
-        >  
-          <View style={styles.headerActions}> 
-            <TouchableOpacity
-              style={[
-                styles.themeToggle,
-                { backgroundColor: theme.buttonBg, borderColor: theme.border },
-              ]}
-              onPress={toggleTheme}
-            >
-              <Text
-                style={[styles.themeToggleIcon, { color: theme.textPrimary }]}
-              >
-                {themeName === "dark" ? "☀" : "☾"}
-              </Text>
-            </TouchableOpacity>
-            <View style={styles.langSwitch}>
-              <TouchableOpacity onPress={() => setLanguage('pl')}>
-                <Text
-                  style={[
-                    styles.langOption,
-                    { color: theme.textMuted },
-                    language === 'pl' && [styles.langOptionSelected, { color: theme.textPrimary }],
-                  ]}
-                >
-                  PL
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setLanguage('en')}>
-                <Text
-                  style={[
-                    styles.langOption,
-                    { color: theme.textMuted },
-                    language === 'en' && [styles.langOptionSelected, { color: theme.textPrimary }],
-                  ]}
-                >
-                  EN
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <Text style={[styles.title, { color: theme.textPrimary }]}>
-            {t('loginTitle')}
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-            {t('loginSubtitle')}
-          </Text>
-        </View>
-
-        <View style={[styles.card, { backgroundColor: theme.panelBg, borderColor: theme.border }]}
-        >
-          <TextInput
-            ref={emailRef}
-            placeholder={t('emailPlaceholder')}
-            placeholderTextColor={theme.textMuted}
-            value={email}
-            onChangeText={(t) => {
-              setEmail(t);
-              setLoginError("");
-              setRegisterError("");
-              setNeedsEmailVerification(false);
-            }}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary }]}
-          />
-          <TextInput
-            ref={passwordRef}
-            placeholder={t('passwordPlaceholder')}
-            placeholderTextColor={theme.textMuted}
-            value={password}
-            onChangeText={(t) => {
-              setPassword(t);
-              setLoginError("");
-              setRegisterError("");
-              setNeedsEmailVerification(false);
-            }}
-            secureTextEntry
-            style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary }]}
-          />
-          <TouchableOpacity
-            style={[
-              styles.googleButton,
-              { backgroundColor: theme.buttonBg, borderColor: theme.border },
-              isLoggingIn && styles.disabledButton,
-            ]}
-            onPress={onGoogleSignIn}
-            disabled={isLoggingIn}
-          >
-            <Text style={[styles.googleButtonText, { color: theme.textPrimary }]}> 
-              {t('loginWithGoogle')}
-            </Text>
-          </TouchableOpacity>
-          <TextInput
-            placeholder={t('householdPlaceholder')}
-            placeholderTextColor={theme.textMuted}
-            value={householdInviteCode}
-            onChangeText={(t) => { setHouseholdInviteCode(t); setRegisterError(""); }}
-            autoCapitalize="characters"
-            style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary }]}
-          />
-
-          {loginError ? (
-            <Text style={styles.modalError}>{loginError}</Text>
-          ) : null}
-          {registerError ? (
-            <Text style={styles.modalError}>{registerError}</Text>
-          ) : null}
-          {needsEmailVerification ? (
-            <TouchableOpacity
-              style={[
-                styles.secondaryButton,
-                { backgroundColor: theme.buttonBg },
-                isLoggingIn && styles.disabledButton,
-              ]}
-              onPress={onResendVerification}
-              disabled={isLoggingIn}
-            >
-              <Text
-                style={[styles.secondaryButtonText, { color: theme.textPrimary }]}
-              >
-                {t('resendVerification')}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                { backgroundColor: theme.primary },
-                isLoggingIn && styles.disabledButton,
-              ]}
-              onPress={onLogin}
-              disabled={isLoggingIn}
-            >
-              <Text style={[styles.primaryButtonText, { color: theme.onPrimary }]}>
-                {isLoggingIn ? t('loggingIn') : t('login')}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.secondaryButton,
-                { backgroundColor: theme.buttonBg },
-                isRegistering && styles.disabledButton,
-              ]}
-              onPress={onRegister}
-              disabled={isRegistering}
-            >
-              <Text style={[styles.secondaryButtonText, { color: theme.textPrimary }]}
-              >
-                {isRegistering ? t('registering') : t('register')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScrollView>
-    );
-  }
-
   return (
     <View style={[styles.container, { backgroundColor: theme.pageBg }]}>
       {/* {isDevBuild && (
@@ -2933,45 +3164,6 @@ export default function App() {
           <Text style={[styles.topBarTitle, { color: theme.textPrimary }]}>
             {t('topBarTitle')}
           </Text>
-          <View style={styles.topBarActions}>
-            <TouchableOpacity
-              style={[
-                styles.themeToggle,
-                { backgroundColor: theme.buttonBg, borderColor: theme.border },
-              ]}
-              onPress={toggleTheme}
-            >
-              <Text
-                style={[styles.themeToggleIcon, { color: theme.textPrimary }]}
-              >
-                {themeName === "dark" ? "☀" : "☾"}
-              </Text>
-            </TouchableOpacity>
-            <View style={styles.langSwitch}>
-              <TouchableOpacity onPress={() => setLanguage('pl')}>
-                <Text
-                  style={[
-                    styles.langOption,
-                    { color: theme.textMuted },
-                    language === 'pl' && [styles.langOptionSelected, { color: theme.textPrimary }],
-                  ]}
-                >
-                  PL
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setLanguage('en')}>
-                <Text
-                  style={[
-                    styles.langOption,
-                    { color: theme.textMuted },
-                    language === 'en' && [styles.langOptionSelected, { color: theme.textPrimary }],
-                  ]}
-                >
-                  EN
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
         </View>
 
         <View
@@ -2989,6 +3181,7 @@ export default function App() {
             minDate={todayKey}
             hideExtraDays
             enableSwipeMonths
+            monthFormat="MMM yyyy"
             renderArrow={(direction) => (
               <View
                 style={[
@@ -3017,7 +3210,7 @@ export default function App() {
               textMonthFontWeight: "700",
               textDayHeaderFontWeight: "600",
               textDayFontSize: 14,
-              textMonthFontSize: 18,
+              textMonthFontSize: 16,
               textDayHeaderFontSize: 12,
               "stylesheet.day.basic": {
                 base: {
@@ -3067,7 +3260,8 @@ export default function App() {
                   borderBottomWidth: 1,
                   borderBottomColor: theme.border,
                   marginBottom: 6,
-                  paddingHorizontal: 6,
+                  paddingHorizontal: 0,
+                  gap: 6,
                   backgroundColor:
                     isLight ? "#ffffff" : theme.cardBg,
                 },
@@ -3078,7 +3272,8 @@ export default function App() {
                   alignSelf: "center",
                   flex: 1,
                   flexShrink: 1,
-                  marginHorizontal: 6,
+                  minWidth: 0,
+                  marginHorizontal: 2,
                 },
                 dayHeader: {
                   color: isLight ? "#475569" : theme.textMuted,
@@ -3170,6 +3365,7 @@ export default function App() {
             />
           )}
         </View>
+
       </ScrollView>
 
       <Modal
@@ -3448,12 +3644,71 @@ export default function App() {
               ]}
             >
               <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
-                {t('loggedInUser')}
+                {t('settingsTitle')}
+              </Text>
+              <View style={styles.menuSettingsRow}>
+                <Text style={[styles.menuSettingLabel, { color: theme.textPrimary }]}> 
+                  {t('themeLabel')}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.themeToggle,
+                    { backgroundColor: theme.buttonBg, borderColor: theme.border },
+                  ]}
+                  onPress={toggleTheme}
+                >
+                  <Text style={[styles.themeToggleIcon, { color: theme.textPrimary }]}> 
+                    {themeName === "dark" ? "☀" : "☾"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.menuSettingsRow}>
+                <Text style={[styles.menuSettingLabel, { color: theme.textPrimary }]}> 
+                  {t('languageLabel')}
+                </Text>
+                <View style={styles.langSwitch}>
+                  <TouchableOpacity onPress={() => setLanguage('pl')}>
+                    <Text
+                      style={[
+                        styles.langOption,
+                        { color: theme.textMuted },
+                        language === 'pl' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                      ]}
+                    >
+                      PL
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setLanguage('en')}>
+                    <Text
+                      style={[
+                        styles.langOption,
+                        { color: theme.textMuted },
+                        language === 'en' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                      ]}
+                    >
+                      EN
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+            <View
+              style={[
+                styles.menuUserBox,
+                { backgroundColor: theme.panelBg, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
+                {t('profileLabel')}
               </Text>
               <Text style={[styles.menuUserEmail, { color: theme.textPrimary }]}> 
-                {userEmail ?? t('noEmail')}
+                {isAuthenticated ? userEmail ?? t('guestMode') : t('guestMode')}
+              </Text>
+              <Text style={[styles.tooltipText, { color: theme.textMuted }]}> 
+                {isCloudStorageActive ? t('cloudStorageActive') : t('localStorageActive')}
               </Text>
             </View>
+            {isAuthenticated ? (
             <View
               style={[
                 styles.menuUserBox,
@@ -3487,6 +3742,7 @@ export default function App() {
                 </Text>
               ) : null}
             </View>
+            ) : null}
 
             <View
               style={[
@@ -3520,14 +3776,19 @@ export default function App() {
                   {t('importHelpText')}
                 </Text>
               ) : null}
+              {!isAiAvailable ? (
+                <Text style={[styles.tooltipText, { color: theme.textMuted }]}> 
+                  {t('importMissingEndpoint')}
+                </Text>
+              ) : null}
               <TouchableOpacity
                 style={[
                   styles.menuSaveButton,
                   { backgroundColor: theme.primary },
-                  isImporting && styles.disabledButton,
+                  (!isAiAvailable || isImporting) && styles.disabledButton,
                 ]}
                 onPress={onPickImportFile}
-                disabled={isImporting}
+                disabled={!isAiAvailable || isImporting}
               >
                 <Text style={[styles.menuSaveText, { color: theme.onPrimary }]}> 
                   {isImporting ? t('importProcessing') : t('importMenuButton')}
@@ -3617,17 +3878,19 @@ export default function App() {
                 </Text>
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity
-              style={[styles.menuLogoutButton, { backgroundColor: theme.dangerBg }]}
-              onPress={async () => {
-                setShowMenuModal(false);
-                await onLogout();
-              }}
-            >
-              <Text style={[styles.menuLogoutText, { color: theme.dangerText }]}> 
-                {t('logout')}
-              </Text>
-            </TouchableOpacity>
+            {isAuthenticated ? (
+              <TouchableOpacity
+                style={[styles.menuLogoutButton, { backgroundColor: theme.dangerBg }]}
+                onPress={async () => {
+                  setShowMenuModal(false);
+                  await onLogout();
+                }}
+              >
+                <Text style={[styles.menuLogoutText, { color: theme.dangerText }]}> 
+                  {t('logout')}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
           <TouchableOpacity
             style={styles.menuBackdrop}
@@ -3714,7 +3977,7 @@ const styles = StyleSheet.create({
   containerContent: {
     padding: 16,
     gap: 14,
-    paddingBottom: 24,
+    paddingBottom: 40,
   },
   versionBadge: {
     position: "absolute",
@@ -3737,24 +4000,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 2,
   },
-  topBarActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginLeft: "auto",
-  },
   langSwitch: {
     flexDirection: "row",
     gap: 6,
-  },
-  headerActions: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-    zIndex: 20,
   },
   themeToggle: {
     width: 32,
@@ -3876,20 +4124,22 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingBottom: 8,
     paddingTop: 6,
-    paddingHorizontal: 6,
+    paddingHorizontal: 0,
+    width: "100%",
+    alignSelf: "stretch",
   },
   calendarArrow: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 8,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   calendarArrowText: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: "700",
-    lineHeight: 20,
+    lineHeight: 14,
   },
   selectedDateLabel: {
     color: "#94a3b8",
@@ -4058,6 +4308,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "#1f2937",
+    maxHeight: "88%",
   },
   modalTitle: {
     color: "#f8fafc",
@@ -4168,12 +4419,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#0f172a",
     borderRightWidth: 1,
     borderRightColor: "#1f2937",
-    paddingTop: 32,
+    paddingTop: 44,
     paddingHorizontal: 16,
   },
   menuPanelContent: {
     gap: 14,
-    paddingBottom: 20,
+    paddingBottom: 72,
   },
   menuTitle: {
     color: "#f8fafc",
@@ -4192,6 +4443,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+  },
+  menuSettingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 8,
+  },
+  menuSettingLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
   },
   infoButton: {
     width: 22,

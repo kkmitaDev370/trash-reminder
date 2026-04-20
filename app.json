@@ -3,7 +3,7 @@
     "name": "Harmonogram Śmieci",
     "slug": "trash-reminder",
     "scheme": "com.anonymous.trashreminder",
-    "version": "1.0.29",
+    "version": "1.0.35",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -25,7 +25,7 @@
         "resizeMode": "contain",
         "backgroundColor": "#0b1220"
       },
-      "buildNumber": "29"
+      "buildNumber": "35"
     },
     "android": {
       "splash": {
@@ -38,8 +38,14 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": false,
+      "scheme": [
+        "com.googleusercontent.apps.1011735082727-ievv74mvnh2b8lvt1d0a7jajq7q8r9e8"
+      ],
       "package": "com.anonymous.trashreminder",
-      "versionCode": 29
+      "versionCode": 37,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -50,15 +56,15 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "b60bb173-8027-4942-9054-19aad01d4e35"
+        "projectId": "996c8815-6620-4ed4-bb3c-61a7bb21ffe0"
       }
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/b60bb173-8027-4942-9054-19aad01d4e35"
+      "url": "https://u.expo.dev/996c8815-6620-4ed4-bb3c-61a7bb21ffe0"
     },
-    "owner": "traasd12312"
+    "owner": "kamil123sadasdsd"
   }
 }
