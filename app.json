@@ -3,7 +3,7 @@
     "name": "Harmonogram Śmieci",
     "slug": "trash-reminder",
     "scheme": "com.anonymous.trashreminder",
-    "version": "1.0.35",
+    "version": "1.0.37",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -25,7 +25,7 @@
         "resizeMode": "contain",
         "backgroundColor": "#0b1220"
       },
-      "buildNumber": "35"
+      "buildNumber": "37"
     },
     "android": {
       "splash": {
@@ -42,7 +42,7 @@
         "com.googleusercontent.apps.1011735082727-ievv74mvnh2b8lvt1d0a7jajq7q8r9e8"
       ],
       "package": "com.anonymous.trashreminder",
-      "versionCode": 37,
+      "versionCode": 41,
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]

@@ -1,11 +1,13 @@
 {
   "name": "trash-reminder",
-  "version": "1.0.35",
+  "version": "1.0.37",
   "main": "index.js",
   "scripts": {
     "start": "cross-env EXPO_NO_BROWSER=1 BROWSER=none expo start --web",
     "dev": "node scripts/bump-build-version.mjs && eas build --platform android --profile development",
-    "prod": "node scripts/bump-build-version.mjs && eas build --platform android --profile production && eas update --channel production --non-interactive"
+    "prod": "node scripts/bump-build-version.mjs && eas build --platform android --profile production && eas update --channel production --non-interactive",
+    "update": "cross-env CI=1 eas update --channel production --auto",
+    "store": "node scripts/bump-build-version.mjs && eas build --platform android --profile productionStore"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",

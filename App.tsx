@@ -745,6 +745,8 @@ export default function App() {
   const [modalError, setModalError] = useState("");
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [showMenuModal, setShowMenuModal] = useState(false);
+  const [showClearAllModal, setShowClearAllModal] = useState(false);
+  const [hasAcknowledgedClearAll, setHasAcknowledgedClearAll] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSubject, setFeedbackSubject] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
@@ -787,8 +789,6 @@ export default function App() {
   });
   const [isSessionDebugLoading, setIsSessionDebugLoading] = useState(false);
   const isAuthenticated = Boolean(userUid);
-  const isDevAdmin = Boolean(isDevBuild && userUid);
-  const isCloudStorageActive = isAuthenticated;
   const isAiAvailable = Boolean(IMPORT_ENDPOINT);
   const appVersionLabel = (() => {
     const nativeVersion = Application.nativeApplicationVersion ?? "dev";
@@ -1129,7 +1129,6 @@ export default function App() {
           typeof (file as { size?: number }).size === "number"
             ? (file as { size?: number }).size ?? null
             : null;
-        setShowMenuModal(false);
       } else {
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (permission.status !== "granted") {
@@ -1152,7 +1151,6 @@ export default function App() {
         fileUri = file.uri;
         fileName = file.fileName ?? `import_${Date.now()}.jpg`;
         mimeType = file.mimeType ?? mimeType;
-        setShowMenuModal(false);
       }
 
       let fileSize = pickedSize ?? 0;
@@ -3043,70 +3041,57 @@ export default function App() {
       return;
     }
 
-    if (!isDevAdmin) {
-      notify(t('error'), t('accessDenied'));
-      return;
-    }
-
-    const firestore = db;
-    if (!firestore || !currentHouseholdId || !userUid) {
-      notify(t('error'), t('noHouseholdError'));
-      return;
-    }
-
-    const confirmed = await confirmAction(
-      t('devClearUserTitle'),
-      t('devClearUserBody'),
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
     setIsClearingAllEvents(true);
 
     try {
+      if (Platform.OS !== "web") {
+        try {
+          await Notifications.cancelAllScheduledNotificationsAsync();
+        } catch {
+          // best-effort
+        }
+      }
+
+      if (!isAuthenticated) {
+        setEvents([]);
+        await writeLocalEvents([]);
+        setShowClearAllModal(false);
+        setShowMenuModal(false);
+        notify(t('ok'), t('clearAllDone'));
+        return;
+      }
+
+      const firestore = db;
+      if (!firestore || !currentHouseholdId || !userUid) {
+        notify(t('error'), t('noHouseholdError'));
+        return;
+      }
+
       const eventsRef = collection(
         doc(firestore, "households", currentHouseholdId),
         "events",
       );
       const q = query(eventsRef, where("createdByUid", "==", userUid));
       const snapshot = await getDocs(q);
-
-      const userEvents = snapshot.docs.map((docSnap) => {
-        const data = docSnap.data() as { notificationId?: string };
-        return { id: docSnap.id, notificationId: data.notificationId };
-      });
-
-      if (Platform.OS !== "web") {
-        for (const item of userEvents) {
-          if (item.notificationId) {
-            try {
-              await Notifications.cancelScheduledNotificationAsync(
-                item.notificationId,
-              );
-            } catch {
-              // best-effort
-            }
-          }
-        }
-      }
+      const userEventIds = new Set(snapshot.docs.map((docSnap) => docSnap.id));
 
       await Promise.all(
-        userEvents.map((item) =>
+        snapshot.docs.map((docSnap) =>
           deleteDoc(
-            doc(firestore, "households", currentHouseholdId, "events", item.id),
+            doc(firestore, "households", currentHouseholdId, "events", docSnap.id),
           ),
         ),
       );
 
       setEvents((previous) =>
-        previous.filter((item) => item.id && !userEvents.some((u) => u.id === item.id)),
+        previous.filter((item) => !userEventIds.has(item.id)),
       );
-      notify(t('ok'), t('devClearUserDone'));
+      setShowClearAllModal(false);
+      setShowMenuModal(false);
+      notify(t('ok'), t('clearAllDone'));
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : t('devClearUserFailed');
+        error instanceof Error ? error.message : t('clearAllFailed');
       notify(t('error'), message);
     } finally {
       setIsClearingAllEvents(false);
@@ -3212,6 +3197,9 @@ export default function App() {
               textDayFontSize: 14,
               textMonthFontSize: 16,
               textDayHeaderFontSize: 12,
+              arrowStyle: {
+                padding: 4,
+              },
               "stylesheet.day.basic": {
                 base: {
                   color: isLight ? "#0f172a" : theme.textPrimary,
@@ -3265,6 +3253,13 @@ export default function App() {
                   backgroundColor:
                     isLight ? "#ffffff" : theme.cardBg,
                 },
+                headerContainer: {
+                  flex: 1,
+                  minWidth: 0,
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  alignItems: "center",
+                },
                 monthText: {
                   color: isLight ? "#0f172a" : theme.textPrimary,
                   fontWeight: "700",
@@ -3273,6 +3268,7 @@ export default function App() {
                   flex: 1,
                   flexShrink: 1,
                   minWidth: 0,
+                  margin: 0,
                   marginHorizontal: 2,
                 },
                 dayHeader: {
@@ -3555,41 +3551,68 @@ export default function App() {
                 </ScrollView>
               </View>
             ) : null}
-            <ScrollView
-              style={styles.importList}
-              contentContainerStyle={styles.importListContent}
-              showsVerticalScrollIndicator={false}
+            <View style={styles.importReviewHeader}>
+              <Text style={[styles.importReviewTitle, { color: theme.textPrimary }]}> 
+                {t('importReviewTitle')}
+              </Text>
+              <Text style={[styles.importReviewHint, { color: theme.textMuted }]}> 
+                {t('importScrollHint')}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.importListShell,
+                { borderColor: theme.border, backgroundColor: theme.panelBg },
+              ]}
             >
-              {groupedImportItems.map((section) => (
-                <View key={section.key} style={styles.importSection}>
-                  <Text
-                    style={[styles.importSectionTitle, { color: theme.textPrimary }]}
-                  >
-                    {section.title}
-                  </Text>
-                  <View style={styles.importGrid}>
-                    {section.items.map((item, index) => {
-                      const day = parseDateKey(item.date).day;
-                      const cardColor = getWasteTypeColor(item.wasteType);
+              <ScrollView
+                style={styles.importList}
+                contentContainerStyle={styles.importListContent}
+                showsVerticalScrollIndicator
+                persistentScrollbar
+              >
+                {groupedImportItems.map((section) => (
+                  <View key={section.key} style={styles.importSection}>
+                    <Text
+                      style={[styles.importSectionTitle, { color: theme.textPrimary }]}
+                    >
+                      {section.title}
+                    </Text>
+                    <View style={styles.importGrid}>
+                      {section.items.map((item, index) => {
+                        const day = parseDateKey(item.date).day;
+                        const cardColor = getWasteTypeColor(item.wasteType);
 
-                      return (
-                        <View
-                          key={`${item.date}-${index}`}
-                          style={[styles.importCard, { backgroundColor: cardColor }]}
-                        >
-                          <Text style={styles.importCardTypeTop}>
-                            {item.wasteType}
-                          </Text>
-                          <Text style={styles.importCardDay}>
-                            {day || "—"}
-                          </Text>
-                        </View>
-                      );
-                    })}
+                        return (
+                          <View
+                            key={`${item.date}-${index}`}
+                            style={[styles.importCard, { backgroundColor: cardColor }]}
+                          >
+                            <Text style={styles.importCardTypeTop}>
+                              {item.wasteType}
+                            </Text>
+                            <Text style={styles.importCardDay}>
+                              {day || "—"}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
                   </View>
-                </View>
-              ))}
-            </ScrollView>
+                ))}
+              </ScrollView>
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.importListScrollCue,
+                  { borderTopColor: theme.border, backgroundColor: theme.cardBg },
+                ]}
+              >
+                <Text style={[styles.importListScrollCueText, { color: theme.textMuted }]}> 
+                  {t('importScrollHint')}
+                </Text>
+              </View>
+            </View>
 
             <View style={styles.actionRow}>
               <TouchableOpacity
@@ -3634,9 +3657,22 @@ export default function App() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={[styles.menuTitle, { color: theme.textPrimary }]}> 
-              {t('account')}
-            </Text>
+            <View style={styles.menuHeader}>
+              <Text style={[styles.menuTitle, { color: theme.textPrimary }]}> 
+                {t('account')}
+              </Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={t('closeSidebar')}
+                style={[
+                  styles.menuCloseButton,
+                  { backgroundColor: theme.buttonBg, borderColor: theme.border },
+                ]}
+                onPress={() => setShowMenuModal(false)}
+              >
+                <Text style={[styles.menuCloseText, { color: theme.textPrimary }]}>x</Text>
+              </TouchableOpacity>
+            </View>
             <View
               style={[
                 styles.menuUserBox,
@@ -3691,22 +3727,6 @@ export default function App() {
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
-            <View
-              style={[
-                styles.menuUserBox,
-                { backgroundColor: theme.panelBg, borderColor: theme.border },
-              ]}
-            >
-              <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
-                {t('profileLabel')}
-              </Text>
-              <Text style={[styles.menuUserEmail, { color: theme.textPrimary }]}> 
-                {isAuthenticated ? userEmail ?? t('guestMode') : t('guestMode')}
-              </Text>
-              <Text style={[styles.tooltipText, { color: theme.textMuted }]}> 
-                {isCloudStorageActive ? t('cloudStorageActive') : t('localStorageActive')}
-              </Text>
             </View>
             {isAuthenticated ? (
             <View
@@ -3781,19 +3801,32 @@ export default function App() {
                   {t('importMissingEndpoint')}
                 </Text>
               ) : null}
-              <TouchableOpacity
-                style={[
-                  styles.menuSaveButton,
-                  { backgroundColor: theme.primary },
-                  (!isAiAvailable || isImporting) && styles.disabledButton,
-                ]}
-                onPress={onPickImportFile}
-                disabled={!isAiAvailable || isImporting}
-              >
-                <Text style={[styles.menuSaveText, { color: theme.onPrimary }]}> 
-                  {isImporting ? t('importProcessing') : t('importMenuButton')}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.menuActionSpacing}>
+                <TouchableOpacity
+                  style={[
+                    styles.menuActionButton,
+                    styles.menuActionButtonPrimary,
+                    { backgroundColor: theme.primary },
+                    (!isAiAvailable || isImporting) && styles.disabledButton,
+                  ]}
+                  onPress={onPickImportFile}
+                  disabled={!isAiAvailable || isImporting}
+                >
+                  <View style={styles.menuActionContent}>
+                    <View style={[styles.menuActionBadge, { backgroundColor: "rgba(255, 255, 255, 0.18)" }]}>
+                      <Text style={[styles.menuActionBadgeText, { color: theme.onPrimary }]}>IMG</Text>
+                    </View>
+                    <View style={styles.menuActionTextWrap}>
+                      <Text style={[styles.menuActionEyebrow, { color: theme.onPrimary }]}>
+                        {t('importActionHint')}
+                      </Text>
+                      <Text style={[styles.menuActionTitle, { color: theme.onPrimary }]}> 
+                        {isImporting ? t('importProcessing') : t('importMenuButton')}
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </View>
               {typeof importProgress === "number" ? (
                 <View style={styles.importProgressBlock}>
                   <Text style={[styles.importProgressLabel, { color: theme.textMuted }]}> 
@@ -3830,6 +3863,9 @@ export default function App() {
               <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
                 {t('reminderTime')}
               </Text>
+              <Text style={[styles.menuSectionHint, { color: theme.textMuted }]}> 
+                {t('reminderTimeHint')}
+              </Text>
               <TextInput
                 value={notificationTimeInput}
                 onChangeText={setNotificationTimeInput}
@@ -3840,21 +3876,60 @@ export default function App() {
                   { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
                 ]}
               />
-              <TouchableOpacity
-                style={[
-                  styles.menuSaveButton,
-                  { backgroundColor: theme.primary },
-                  isSavingNotificationTime && styles.disabledButton,
-                ]}
-                onPress={onSaveNotificationTime}
-                disabled={isSavingNotificationTime}
-              >
-                <Text style={[styles.menuSaveText, { color: theme.onPrimary }]}> 
-                  {isSavingNotificationTime
-                    ? t('saving')
-                    : t('saveTime')}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.menuActionSpacing}>
+                <TouchableOpacity
+                  style={[
+                    styles.menuActionButton,
+                    styles.menuActionButtonSoft,
+                    { backgroundColor: theme.primary },
+                    isSavingNotificationTime && styles.disabledButton,
+                  ]}
+                  onPress={onSaveNotificationTime}
+                  disabled={isSavingNotificationTime}
+                >
+                  <View style={styles.menuActionContent}>
+                    <View style={[styles.menuActionBadge, { backgroundColor: "rgba(255, 255, 255, 0.18)" }]}>
+                      <Text style={[styles.menuActionBadgeText, { color: theme.onPrimary }]}>HH</Text>
+                    </View>
+                    <View style={styles.menuActionTextWrap}>
+                      <Text style={[styles.menuActionEyebrow, { color: theme.onPrimary }]}> 
+                        {t('saveTimeActionHint')}
+                      </Text>
+                      <Text style={[styles.menuActionTitle, { color: theme.onPrimary }]}> 
+                        {isSavingNotificationTime
+                          ? t('saving')
+                          : t('saveTime')}
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View
+              style={[
+                styles.menuUserBox,
+                { backgroundColor: theme.panelBg, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.menuUserLabel, { color: theme.textMuted }]}> 
+                {t('clearAllTitle')}
+              </Text>
+              <Text style={[styles.menuSectionHint, { color: theme.textMuted }]}> 
+                {t('clearAllBody')}
+              </Text>
+              <View style={styles.menuActionSpacing}>
+                <TouchableOpacity
+                  style={[styles.menuDangerButton, { backgroundColor: theme.dangerBg, borderColor: theme.dangerText }]}
+                  onPress={() => {
+                    setHasAcknowledgedClearAll(false);
+                    setShowClearAllModal(true);
+                  }}
+                >
+                  <Text style={[styles.menuDangerButtonText, { color: theme.dangerText }]}> 
+                    {t('clearAllButton')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
             <TouchableOpacity
               style={[styles.menuSaveButton, { backgroundColor: theme.buttonBg }]}
@@ -3867,17 +3942,6 @@ export default function App() {
                 {t('feedbackButton')}
               </Text>
             </TouchableOpacity>
-            {isDevAdmin ? (
-              <TouchableOpacity
-                style={[styles.menuDebugDangerButton, { backgroundColor: theme.dangerBg }]}
-                onPress={onClearAllEvents}
-                disabled={isClearingAllEvents}
-              >
-                <Text style={[styles.menuDebugDangerText, { color: theme.dangerText }]}> 
-                  {isClearingAllEvents ? t('saving') : t('devClearUserButton')}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
             {isAuthenticated ? (
               <TouchableOpacity
                 style={[styles.menuLogoutButton, { backgroundColor: theme.dangerBg }]}
@@ -3896,6 +3960,84 @@ export default function App() {
             style={styles.menuBackdrop}
             onPress={() => setShowMenuModal(false)}
           />
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showClearAllModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowClearAllModal(false);
+          setHasAcknowledgedClearAll(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: theme.textPrimary }]}> 
+              {t('clearAllTitle')}
+            </Text>
+            <Text style={[styles.modalSubtitle, { color: theme.textMuted }]}> 
+              {t('clearAllBody')}
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.confirmNoticeBox,
+                { borderColor: theme.border, backgroundColor: theme.inputBg },
+              ]}
+              onPress={() =>
+                setHasAcknowledgedClearAll((previous) => !previous)
+              }
+            >
+              <View
+                style={[
+                  styles.confirmCheckbox,
+                  { borderColor: hasAcknowledgedClearAll ? theme.dangerText : theme.border },
+                  hasAcknowledgedClearAll && { backgroundColor: theme.dangerBg },
+                ]}
+              >
+                {hasAcknowledgedClearAll ? (
+                  <Text style={[styles.confirmCheckboxMark, { color: theme.dangerText }]}>x</Text>
+                ) : null}
+              </View>
+              <Text style={[styles.confirmNoticeText, { color: theme.textPrimary }]}> 
+                {t('clearAllAcknowledge')}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.dangerButton,
+                  { backgroundColor: theme.dangerBg },
+                  (!hasAcknowledgedClearAll || isClearingAllEvents) && styles.disabledButton,
+                ]}
+                onPress={onClearAllEvents}
+                disabled={!hasAcknowledgedClearAll || isClearingAllEvents}
+              >
+                <Text style={[styles.dangerButtonText, { color: theme.dangerText }]}> 
+                  {isClearingAllEvents ? t('saving') : t('clearAllButton')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.secondaryButton, { backgroundColor: theme.buttonBg }]}
+                onPress={() => {
+                  setShowClearAllModal(false);
+                  setHasAcknowledgedClearAll(false);
+                }}
+              >
+                <Text style={[styles.secondaryButtonText, { color: theme.textPrimary }]}> 
+                  {t('cancel')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -4345,12 +4487,42 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
-  importList: {
-    maxHeight: 260,
+  importReviewHeader: {
+    marginBottom: 8,
+    gap: 4,
+  },
+  importReviewTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  importReviewHint: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  importListShell: {
+    maxHeight: 290,
+    borderWidth: 1,
+    borderRadius: 14,
+    overflow: "hidden",
     marginBottom: 10,
+  },
+  importList: {
+    maxHeight: 252,
   },
   importListContent: {
     gap: 10,
+    padding: 12,
+    paddingBottom: 14,
+  },
+  importListScrollCue: {
+    borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  importListScrollCueText: {
+    fontSize: 11,
+    textAlign: "center",
+    fontWeight: "600",
   },
   importRawBlock: {
     marginBottom: 10,
@@ -4426,9 +4598,28 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingBottom: 72,
   },
+  menuHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
   menuTitle: {
     color: "#f8fafc",
     fontSize: 20,
+    fontWeight: "700",
+  },
+  menuCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuCloseText: {
+    fontSize: 18,
+    lineHeight: 18,
     fontWeight: "700",
   },
   menuUserBox: {
@@ -4473,6 +4664,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
+  menuSectionHint: {
+    marginBottom: 0,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  menuActionSpacing: {
+    marginTop: 12,
+  },
   menuUserLabel: {
     color: "#94a3b8",
     fontSize: 12,
@@ -4490,22 +4689,76 @@ const styles = StyleSheet.create({
   menuInput: {
     borderWidth: 1,
     borderColor: "#1f2937",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     backgroundColor: "#0b1220",
     color: "#e5e7eb",
-    marginBottom: 10,
+    marginTop: 10,
+    fontSize: 15,
+    fontWeight: "600",
   },
   menuSaveButton: {
     backgroundColor: "#1d4ed8",
-    borderRadius: 8,
+    borderRadius: 12,
     paddingVertical: 10,
     alignItems: "center",
   },
   menuSaveText: {
     color: "#dbeafe",
     fontWeight: "700",
+  },
+  menuActionButton: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    alignItems: "stretch",
+  },
+  menuActionButtonPrimary: {
+    shadowColor: "#020617",
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+  menuActionButtonSoft: {
+    shadowColor: "#020617",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  menuActionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  menuActionBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuActionBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+  },
+  menuActionTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  menuActionEyebrow: {
+    fontSize: 10,
+    fontWeight: "700",
+    opacity: 0.78,
+    marginBottom: 1,
+    textTransform: "uppercase",
+  },
+  menuActionTitle: {
+    fontSize: 14,
+    fontWeight: "800",
   },
   menuTestButton: {
     marginTop: 10,
@@ -4545,6 +4798,15 @@ const styles = StyleSheet.create({
     color: "#fecaca",
     fontWeight: "700",
   },
+  menuDangerButton: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  menuDangerButtonText: {
+    fontWeight: "800",
+  },
   menuLogoutButton: {
     backgroundColor: "#7f1d1d",
     borderRadius: 8,
@@ -4554,5 +4816,42 @@ const styles = StyleSheet.create({
   menuLogoutText: {
     color: "#fecaca",
     fontWeight: "700",
+  },
+  confirmNoticeBox: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 14,
+  },
+  confirmCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmCheckboxMark: {
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 14,
+  },
+  confirmNoticeText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  dangerButton: {
+    flex: 1,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  dangerButtonText: {
+    fontWeight: "800",
   },
 });
