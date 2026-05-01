@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "1011735082727",
+    "project_id": "trash-reminder-app-8e957",
+    "storage_bucket": "trash-reminder-app-8e957.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1011735082727:android:59b20c033ac2eedf71d442",
+        "android_client_info": {
+          "package_name": "com.anonymous.trashreminder"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1011735082727-ievv74mvnh2b8lvt1d0a7jajq7q8r9e8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.anonymous.trashreminder",
+            "certificate_hash": "08b5d0c115671c315701279f888beb8cdce7506f"
+          }
+        },
+        {
+          "client_id": "1011735082727-aaohs7dvkmlrkvndmtbvlptm0mbb668f.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD7M-NjT3FzetHdn9jQW1gvX3QuMZgUk1k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1011735082727-32dm3c648mevmnj14eahcn5sph7gncih.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1011735082727-1g3t8536l7a8bn49aoniafvtc763ggrl.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.anonymous.trashreminder"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
