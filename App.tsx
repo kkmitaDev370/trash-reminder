@@ -329,16 +329,18 @@ const writeLocalNotificationTime = async (value: string) => {
 const getWasteTypeColor = (wasteType: string) => {
   const normalized = wasteType.trim().toLowerCase();
 
-  if (normalized.includes("zmiesz") || normalized.includes("mixed")) return "#475569";
+  // Kolory zgodne z ogólnie przyjętymi zasadami segregacji odpadów w Polsce.
+  if (normalized.includes("zmiesz") || normalized.includes("mixed")) return "#000000";
+  if (normalized.includes("popio") || normalized.includes("ash")) return "#6b7280";
   if (
     normalized.includes("plastik") ||
     normalized.includes("metal") ||
     normalized.includes("plastic")
   )
-    return "#f59e0b";
+    return "#ca8a04";
   if (normalized.includes("papier") || normalized.includes("paper")) return "#3b82f6";
-  if (normalized.includes("szk") || normalized.includes("glass")) return "#14b8a6";
-  if (normalized.includes("bio")) return "#16a34a";
+  if (normalized.includes("szk") || normalized.includes("glass")) return "#16a34a";
+  if (normalized.includes("bio")) return "#92400e";
   if (normalized.includes("gabary") || normalized.includes("bulky")) return "#a855f7";
   if (
     normalized.includes("elektro") ||
@@ -363,6 +365,7 @@ const WASTE_TYPE_KEYWORDS: Record<"pl" | "en", { type: string; keywords: string[
     { type: "Papier", keywords: ["papier", "makul"] },
     { type: "Szkło", keywords: ["szklo", "szkło", "glass"] },
     { type: "Bio", keywords: ["bio", "organicz", "kompost"] },
+    { type: "Popiół", keywords: ["popio"] },
     { type: "Gabaryty", keywords: ["gabary", "wielkogab", "meble"] },
     { type: "Elektroodpady", keywords: ["elektro", "sprzet", "sprzęt", "e-odp"] },
   ],
@@ -372,6 +375,7 @@ const WASTE_TYPE_KEYWORDS: Record<"pl" | "en", { type: string; keywords: string[
     { type: "Paper", keywords: ["paper"] },
     { type: "Glass", keywords: ["glass"] },
     { type: "Bio", keywords: ["bio", "organic", "compost"] },
+    { type: "Ash", keywords: ["ash"] },
     { type: "Bulky", keywords: ["bulky", "large", "furniture"] },
     { type: "E-waste", keywords: ["e-waste", "ewaste", "electronics"] },
   ],
@@ -598,6 +602,8 @@ const dataUrlToBase64 = (dataUrl: string) => {
 };
 
 export default function App() {
+  const topContentInset = Math.max(16, (Constants.statusBarHeight || 0) + 10);
+
     // Pokazuj wersję tylko dla buildów deweloperskich
     const isDevBuild =
       Constants.executionEnvironment === 'storeClient' // Expo Go
@@ -790,6 +796,10 @@ export default function App() {
   const [isSessionDebugLoading, setIsSessionDebugLoading] = useState(false);
   const isAuthenticated = Boolean(userUid);
   const isAiAvailable = Boolean(IMPORT_ENDPOINT);
+  const isMainContentLoading =
+    !hasLoadedTheme ||
+    (Platform.OS !== "web" && isSessionBootstrapping) ||
+    (isEventsLoading && events.length === 0);
   const appVersionLabel = (() => {
     const nativeVersion = Application.nativeApplicationVersion ?? "dev";
     const nativeBuild = Application.nativeBuildVersion ?? "dev";
@@ -2830,8 +2840,26 @@ export default function App() {
       return;
     }
     setEventDate(day.dateString);
-    setSelectedWasteType(WASTE_TYPES[language][0]);
-    setCustomWasteType("");
+
+    const existingEvent = events.find((item) => item.date === day.dateString);
+    if (existingEvent) {
+      const matchedType = WASTE_TYPES[language].find(
+        (type) =>
+          type.toLowerCase() === existingEvent.wasteType.trim().toLowerCase(),
+      );
+
+      if (matchedType) {
+        setSelectedWasteType(matchedType);
+        setCustomWasteType("");
+      } else {
+        setSelectedWasteType(OTHER_WASTE_LABEL);
+        setCustomWasteType(existingEvent.wasteType);
+      }
+    } else {
+      setSelectedWasteType(WASTE_TYPES[language][0]);
+      setCustomWasteType("");
+    }
+
     setIsWasteTypeDropdownOpen(false);
     setModalError("");
     setShowWasteModal(true);
@@ -3102,7 +3130,10 @@ export default function App() {
     return (
       <ScrollView
         style={[styles.container, { backgroundColor: theme.pageBg }]}
-        contentContainerStyle={styles.containerContent}
+        contentContainerStyle={[
+          styles.containerContent,
+          { paddingTop: topContentInset },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* {isDevBuild && (
@@ -3125,13 +3156,32 @@ export default function App() {
     );
   }
 
+  if (isMainContentLoading) {
+    return (
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: theme.pageBg, justifyContent: "center", alignItems: "center" },
+        ]}
+      >
+        <ActivityIndicator size="large" color={theme.accent} />
+        <Text style={[styles.loaderText, { color: theme.textMuted, marginTop: 12 }]}>
+          {t('loadingNotifications')}
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.pageBg }]}>
       {/* {isDevBuild && (
         <Text style={styles.versionBadge}>{appVersionLabel}</Text>
       )} */}
       <ScrollView
-        contentContainerStyle={styles.containerContent}
+        contentContainerStyle={[
+          styles.containerContent,
+          { paddingTop: topContentInset },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topBar}>
