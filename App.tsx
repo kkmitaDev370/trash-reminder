@@ -331,7 +331,7 @@ const getWasteTypeColor = (wasteType: string) => {
 
   // Kolory zgodne z ogólnie przyjętymi zasadami segregacji odpadów w Polsce.
   if (normalized.includes("zmiesz") || normalized.includes("mixed")) return "#000000";
-  if (normalized.includes("popio") || normalized.includes("ash")) return "#6b7280";
+  if (normalized.includes("popi") || normalized.includes("ash")) return "#6b7280";
   if (
     normalized.includes("plastik") ||
     normalized.includes("metal") ||
@@ -381,7 +381,7 @@ const WASTE_TYPE_KEYWORDS: Record<"pl" | "en", { type: string; keywords: string[
     { type: "Papier", keywords: ["papier", "makul"] },
     { type: "Szkło", keywords: ["szklo", "szkło", "glass"] },
     { type: "Bio", keywords: ["bio", "organicz", "kompost"] },
-    { type: "Popiół", keywords: ["popio"] },
+    { type: "Popiół", keywords: ["popi"] },
     { type: "Gabaryty", keywords: ["gabary", "wielkogab", "meble"] },
     { type: "Elektroodpady", keywords: ["elektro", "sprzet", "sprzęt", "e-odp"] },
   ],
