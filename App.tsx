@@ -337,9 +337,11 @@ const getWasteTypeColor = (wasteType: string) => {
     normalized.includes("metal") ||
     normalized.includes("plastic")
   )
-    return "#ca8a04";
+    return "#eab308";
   if (normalized.includes("papier") || normalized.includes("paper")) return "#3b82f6";
-  if (normalized.includes("szk") || normalized.includes("glass")) return "#16a34a";
+  // Innego odcienia zieleni niż theme.accent, żeby obwódka "dziś" na kalendarzu
+  // nie znikała na tle identycznego koloru.
+  if (normalized.includes("szk") || normalized.includes("glass")) return "#15803d";
   if (normalized.includes("bio")) return "#92400e";
   if (normalized.includes("gabary") || normalized.includes("bulky")) return "#a855f7";
   if (
@@ -350,6 +352,20 @@ const getWasteTypeColor = (wasteType: string) => {
     return "#ef4444";
 
   return "#6366f1";
+};
+
+const getContrastTextColor = (hexColor: string) => {
+  const hex = hexColor.replace("#", "");
+  if (hex.length !== 6) {
+    return "#ffffff";
+  }
+
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+  return luminance > 0.6 ? "#0f172a" : "#ffffff";
 };
 
 const normalizeMatchText = (value: string) =>
@@ -843,9 +859,13 @@ export default function App() {
             height: CALENDAR_DAY_SIZE,
             alignItems: "center",
             justifyContent: "center",
+            // Odznaka "Zmieszane" jest czarna i ginie na ciemnym tle w dark mode,
+            // więc każda kropka dostaje delikatną jasną obwódkę dla kontrastu.
+            borderWidth: isLight ? 0 : 1.5,
+            borderColor: "rgba(255,255,255,0.35)",
           },
           text: {
-            color: "#ffffff",
+            color: getContrastTextColor(resolvedColor),
             fontWeight: "700",
           },
         },
@@ -884,7 +904,7 @@ export default function App() {
     }
 
     return marks;
-  }, [events, theme.textPrimary, todayKey]);
+  }, [events, theme.textPrimary, theme.accent, theme.cardBg, isLight, todayKey]);
 
   const groupedEvents = useMemo(() => {
     const locale = language === "pl" ? "pl-PL" : "en-US";
@@ -3632,16 +3652,24 @@ export default function App() {
                       {section.items.map((item, index) => {
                         const day = parseDateKey(item.date).day;
                         const cardColor = getWasteTypeColor(item.wasteType);
+                        const cardTextColor = getContrastTextColor(cardColor);
 
                         return (
                           <View
                             key={`${item.date}-${index}`}
                             style={[styles.importCard, { backgroundColor: cardColor }]}
                           >
-                            <Text style={styles.importCardTypeTop}>
+                            <Text
+                              style={[
+                                styles.importCardTypeTop,
+                                { color: cardTextColor },
+                              ]}
+                            >
                               {item.wasteType}
                             </Text>
-                            <Text style={styles.importCardDay}>
+                            <Text
+                              style={[styles.importCardDay, { color: cardTextColor }]}
+                            >
                               {day || "—"}
                             </Text>
                           </View>
