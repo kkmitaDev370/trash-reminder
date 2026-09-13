@@ -1170,7 +1170,10 @@ export default function App() {
 
         const result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          quality: 1,
+          // Pełna jakość (1) na nowszych iPhone'ach daje zdjęcia rzędu 8-15 MB,
+          // co po zakodowaniu do base64 i wysłaniu jako JSON potrafi wisieć
+          // w nieskończoność albo trafić w limit czasu funkcji w chmurze.
+          quality: 0.5,
         });
 
         if (result.canceled || !result.assets?.length) {
@@ -1217,18 +1220,35 @@ export default function App() {
 
         setImportProgress(0.45);
 
-        const response = await fetch(IMPORT_ENDPOINT, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            fileName,
-            mimeType,
-            dataBase64,
-            locale: language,
-          }),
-        });
+        // Funkcja w chmurze ma twardy timeout 60s; jeśli sieć się zatnie,
+        // fetch potrafi wisieć znacznie dłużej bez żadnego błędu, co na
+        // telefonie wygląda jak zawieszona aplikacja. Ucinamy to po 55s.
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), 55000);
+
+        let response: Response;
+        try {
+          response = await fetch(IMPORT_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              fileName,
+              mimeType,
+              dataBase64,
+              locale: language,
+            }),
+            signal: abortController.signal,
+          });
+        } catch (fetchError) {
+          if (fetchError instanceof Error && fetchError.name === "AbortError") {
+            throw new Error(t('importTimeout'));
+          }
+          throw fetchError;
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
         if (!response.ok) {
           throw new Error(`${response.status} ${response.statusText}`.trim());
