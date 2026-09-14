@@ -1278,20 +1278,30 @@ export default function App() {
             },
           );
 
-          let timedOut = false;
-          const timeoutId = setTimeout(() => {
-            timedOut = true;
-            uploadTask.cancelAsync().catch(() => {});
-          }, 45000);
+          // Samo cancelAsync() nie wystarczy jako timeout: jeśli natywna
+          // obietnica z uploadAsync() z jakiegoś powodu nigdy się nie
+          // rozstrzygnie (mimo anulowania), await czekałby wiecznie.
+          // Promise.race gwarantuje, że NASZ kod przestanie czekać po 45s,
+          // niezależnie od tego, co zrobi strona natywna.
+          let timeoutId: ReturnType<typeof setTimeout>;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              uploadTask.cancelAsync().catch(() => {});
+              reject(new Error(t('importTimeout')));
+            }, 45000);
+          });
 
           let uploadResult;
           try {
-            uploadResult = await uploadTask.uploadAsync();
+            uploadResult = await Promise.race([
+              uploadTask.uploadAsync(),
+              timeoutPromise,
+            ]);
           } finally {
-            clearTimeout(timeoutId);
+            clearTimeout(timeoutId!);
           }
 
-          if (timedOut || !uploadResult) {
+          if (!uploadResult) {
             throw new Error(t('importTimeout'));
           }
 
