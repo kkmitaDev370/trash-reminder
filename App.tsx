@@ -1211,22 +1211,6 @@ export default function App() {
 
         setImportProgress(0.1);
 
-        // Funkcja w chmurze ma twardy timeout 60s; jeśli sieć się zatnie,
-        // żądanie potrafi wisieć znacznie dłużej bez żadnego błędu, co na
-        // telefonie wygląda jak zawieszona aplikacja. Ucinamy to po 55s.
-        const withTimeout = async <T,>(promise: Promise<T>): Promise<T> => {
-          let timeoutId: ReturnType<typeof setTimeout>;
-          const timeout = new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => reject(new Error(t('importTimeout'))), 55000);
-          });
-
-          try {
-            return await Promise.race([promise, timeout]);
-          } finally {
-            clearTimeout(timeoutId!);
-          }
-        };
-
         let payload: unknown;
 
         if (Platform.OS === "web") {
@@ -1268,23 +1252,50 @@ export default function App() {
           payload = await response.json();
         } else {
           // Wysyłamy plik bezpośrednio z dysku przez natywny upload (multipart)
-          // zamiast czytać go do JS jako jeden wielki string base64. Na starej
-          // architekturze RN (newArchEnabled: false) przepchnięcie kilku MB
-          // przez most JS<->natywne potrafiło ubić appkę bez żadnego wyjątku
-          // do złapania - stąd "cichy" freeze/reset zgłaszany na iOS.
-          setImportProgress(0.3);
-
-          const uploadResult = await withTimeout(
-            FileSystem.uploadAsync(IMPORT_ENDPOINT, fileUri, {
+          // zamiast czytać go do JS jako jeden wielki string base64. Sesja
+          // "foreground" (zamiast domyślnej "background", która na iOS potrafi
+          // dobijać się w nieskończoność w tle, gdy sieć/serwer się zatnie)
+          // + jawne cancelAsync() na timeout - inaczej porzucone przez nas
+          // (ale wciąż działające natywnie) zadanie uploadu właśnie zawieszało
+          // całą aplikację, tak jak zgłoszono po poprzedniej poprawce.
+          const uploadTask = FileSystem.createUploadTask(
+            IMPORT_ENDPOINT,
+            fileUri,
+            {
               httpMethod: "POST",
               uploadType: FileSystem.FileSystemUploadType.MULTIPART,
               fieldName: "file",
               mimeType,
               parameters: { fileName, locale: language },
-            }),
+              sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
+            },
+            (data) => {
+              if (data.totalBytesExpectedToSend > 0) {
+                setImportProgress(
+                  0.1 + (data.totalBytesSent / data.totalBytesExpectedToSend) * 0.75,
+                );
+              }
+            },
           );
 
-          setImportProgress(0.85);
+          let timedOut = false;
+          const timeoutId = setTimeout(() => {
+            timedOut = true;
+            uploadTask.cancelAsync().catch(() => {});
+          }, 45000);
+
+          let uploadResult;
+          try {
+            uploadResult = await uploadTask.uploadAsync();
+          } finally {
+            clearTimeout(timeoutId);
+          }
+
+          if (timedOut || !uploadResult) {
+            throw new Error(t('importTimeout'));
+          }
+
+          setImportProgress(0.9);
 
           if (uploadResult.status < 200 || uploadResult.status >= 300) {
             throw new Error(`${uploadResult.status}`.trim());
