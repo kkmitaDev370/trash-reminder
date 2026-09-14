@@ -1211,51 +1211,92 @@ export default function App() {
 
         setImportProgress(0.1);
 
-        const dataBase64 =
-          Platform.OS === "web"
-            ? dataUrlToBase64(await readWebFileAsDataUrl(fileUri))
-            : await FileSystem.readAsStringAsync(fileUri, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-
-        setImportProgress(0.45);
-
         // Funkcja w chmurze ma twardy timeout 60s; jeśli sieć się zatnie,
-        // fetch potrafi wisieć znacznie dłużej bez żadnego błędu, co na
+        // żądanie potrafi wisieć znacznie dłużej bez żadnego błędu, co na
         // telefonie wygląda jak zawieszona aplikacja. Ucinamy to po 55s.
-        const abortController = new AbortController();
-        const timeoutId = setTimeout(() => abortController.abort(), 55000);
-
-        let response: Response;
-        try {
-          response = await fetch(IMPORT_ENDPOINT, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              fileName,
-              mimeType,
-              dataBase64,
-              locale: language,
-            }),
-            signal: abortController.signal,
+        const withTimeout = async <T,>(promise: Promise<T>): Promise<T> => {
+          let timeoutId: ReturnType<typeof setTimeout>;
+          const timeout = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(t('importTimeout'))), 55000);
           });
-        } catch (fetchError) {
-          if (fetchError instanceof Error && fetchError.name === "AbortError") {
-            throw new Error(t('importTimeout'));
+
+          try {
+            return await Promise.race([promise, timeout]);
+          } finally {
+            clearTimeout(timeoutId!);
           }
-          throw fetchError;
-        } finally {
-          clearTimeout(timeoutId);
+        };
+
+        let payload: unknown;
+
+        if (Platform.OS === "web") {
+          const dataBase64 = dataUrlToBase64(await readWebFileAsDataUrl(fileUri));
+          setImportProgress(0.45);
+
+          const abortController = new AbortController();
+          const timeoutId = setTimeout(() => abortController.abort(), 55000);
+
+          let response: Response;
+          try {
+            response = await fetch(IMPORT_ENDPOINT, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                fileName,
+                mimeType,
+                dataBase64,
+                locale: language,
+              }),
+              signal: abortController.signal,
+            });
+          } catch (fetchError) {
+            if (fetchError instanceof Error && fetchError.name === "AbortError") {
+              throw new Error(t('importTimeout'));
+            }
+            throw fetchError;
+          } finally {
+            clearTimeout(timeoutId);
+          }
+
+          if (!response.ok) {
+            throw new Error(`${response.status} ${response.statusText}`.trim());
+          }
+
+          setImportProgress(0.85);
+          payload = await response.json();
+        } else {
+          // Wysyłamy plik bezpośrednio z dysku przez natywny upload (multipart)
+          // zamiast czytać go do JS jako jeden wielki string base64. Na starej
+          // architekturze RN (newArchEnabled: false) przepchnięcie kilku MB
+          // przez most JS<->natywne potrafiło ubić appkę bez żadnego wyjątku
+          // do złapania - stąd "cichy" freeze/reset zgłaszany na iOS.
+          setImportProgress(0.3);
+
+          const uploadResult = await withTimeout(
+            FileSystem.uploadAsync(IMPORT_ENDPOINT, fileUri, {
+              httpMethod: "POST",
+              uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+              fieldName: "file",
+              mimeType,
+              parameters: { fileName, locale: language },
+            }),
+          );
+
+          setImportProgress(0.85);
+
+          if (uploadResult.status < 200 || uploadResult.status >= 300) {
+            throw new Error(`${uploadResult.status}`.trim());
+          }
+
+          try {
+            payload = JSON.parse(uploadResult.body);
+          } catch {
+            throw new Error(t('importFileError'));
+          }
         }
 
-        if (!response.ok) {
-          throw new Error(`${response.status} ${response.statusText}`.trim());
-        }
-
-        setImportProgress(0.85);
-        const payload = await response.json();
         setImportProgress(1);
         const rawText =
           typeof (payload as { rawText?: string }).rawText === "string"

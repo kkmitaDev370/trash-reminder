@@ -1,8 +1,48 @@
 const functions = require("firebase-functions");
 const nodemailer = require("nodemailer");
+const Busboy = require("busboy");
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+// Parses a multipart/form-data request (native app uploads send the photo
+// this way via FileSystem.uploadAsync so it never has to be loaded into JS
+// as one giant base64 string on the phone).
+const parseMultipartRequest = (req) =>
+  new Promise((resolve, reject) => {
+    const busboy = Busboy({
+      headers: req.headers,
+      limits: { fileSize: MAX_IMAGE_BYTES },
+    });
+
+    const fields = {};
+    let fileBuffer = null;
+    let fileMimeType = "";
+    let fileTooLarge = false;
+
+    busboy.on("field", (name, value) => {
+      fields[name] = value;
+    });
+
+    busboy.on("file", (_name, file, info) => {
+      fileMimeType = info?.mimeType ?? "";
+      const chunks = [];
+      file.on("data", (chunk) => chunks.push(chunk));
+      file.on("limit", () => {
+        fileTooLarge = true;
+      });
+      file.on("end", () => {
+        fileBuffer = Buffer.concat(chunks);
+      });
+    });
+
+    busboy.on("finish", () => {
+      resolve({ fields, fileBuffer, fileMimeType, fileTooLarge });
+    });
+    busboy.on("error", reject);
+
+    busboy.end(req.rawBody);
+  });
 
 const getEnvValue = (key) => {
   const raw = process.env[key];
@@ -78,16 +118,48 @@ exports.trashImport = functions
       return;
     }
 
-    const body = req.body || {};
-    const fileName = String(body.fileName ?? "");
-    const mimeType = String(body.mimeType ?? "");
-    const dataBase64 = String(body.dataBase64 ?? "");
-    const locale = String(body.locale ?? "pl").toLowerCase();
+    const contentType = String(req.headers["content-type"] ?? "");
+    let fileName;
+    let mimeType;
+    let dataBase64;
+    let locale;
+
+    if (contentType.startsWith("multipart/form-data")) {
+      let parsed;
+      try {
+        parsed = await parseMultipartRequest(req);
+      } catch (err) {
+        console.error("Failed to parse multipart upload", {
+          message: err instanceof Error ? err.message : String(err),
+        });
+        setCors();
+        res.status(400).json({ error: "Invalid upload" });
+        return;
+      }
+
+      if (parsed.fileTooLarge) {
+        setCors();
+        res.status(413).json({ error: "Image too large" });
+        return;
+      }
+
+      fileName = String(parsed.fields.fileName ?? "");
+      locale = String(parsed.fields.locale ?? "pl").toLowerCase();
+      mimeType = String(parsed.fields.mimeType ?? parsed.fileMimeType ?? "");
+      dataBase64 = parsed.fileBuffer ? parsed.fileBuffer.toString("base64") : "";
+    } else {
+      const body = req.body || {};
+      fileName = String(body.fileName ?? "");
+      mimeType = String(body.mimeType ?? "");
+      dataBase64 = String(body.dataBase64 ?? "");
+      locale = String(body.locale ?? "pl").toLowerCase();
+    }
 
     console.log("trashImport payload", {
       fileName,
       mimeType,
       locale,
+      contentType,
       base64Length: dataBase64.length,
     });
 
