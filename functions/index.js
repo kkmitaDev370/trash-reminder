@@ -198,7 +198,11 @@ exports.trashImport = functions
       "Do NOT skip numbers if they are clearly part of the schedule. " +
       "If multiple dates belong to a single waste type, return each date separately. " +
       "If a day appears without an explicit month but within a month section, " +
-      "use that month from the section header.";
+      "use that month from the section header. " +
+      "Be very precise about which exact day number each color/marking belongs to - " +
+      "read each day cell individually rather than assuming a repeating pattern, " +
+      "and do not shift a marking to a neighboring day. Double-check each date " +
+      "against its own cell before including it.";
 
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -209,7 +213,7 @@ exports.trashImport = functions
         },
         body: JSON.stringify({
           model,
-          temperature: 0.2,
+          temperature: 0,
           response_format: { type: "json_object" },
           messages: [
             {

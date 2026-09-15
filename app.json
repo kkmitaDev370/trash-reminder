@@ -18,14 +18,15 @@
       "bundleIdentifier": "com.anonymous.trashreminder",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSPhotoLibraryUsageDescription": "Potrzebujemy dostępu do galerii, aby zaimportować harmonogram."
+        "NSPhotoLibraryUsageDescription": "Potrzebujemy dostępu do galerii, aby zaimportować harmonogram.",
+        "NSCameraUsageDescription": "Potrzebujemy dostępu do aparatu, aby zrobić zdjęcie harmonogramu odbioru śmieci."
       },
       "splash": {
         "image": "./assets/splash-icon.png",
         "resizeMode": "contain",
         "backgroundColor": "#0b1220"
       },
-      "buildNumber": "50"
+      "buildNumber": "51"
     },
     "android": {
       "splash": {

@@ -7,7 +7,6 @@ import {
   Modal,
   Platform,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -204,7 +203,6 @@ const THEME_PREFERENCE_KEY = "trash_reminder_theme_v1";
 const LOCAL_EVENTS_KEY = "trash_reminder_local_events_v1";
 const LOCAL_NOTIFICATION_TIME_KEY = "trash_reminder_local_notification_time_v1";
 const MAX_IMPORT_FILE_SIZE_BYTES = 8 * 1024 * 1024;
-const IMPORT_DEBUG_LOG_KEY = "trash_reminder_import_debug_log_v1";
 const FIREBASE_PROJECT_ID =
   (process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "").trim();
 const DEFAULT_FUNCTION_REGION = "us-central1";
@@ -288,21 +286,6 @@ const removeStorageItem = async (key: string) => {
   }
 
   await AsyncStorage.removeItem(key);
-};
-
-// Zapisujemy na dysk krok po kroku (nie tylko w pamięci), żeby ślad
-// zostawał czytelny nawet jeśli import zawiesi/ubije appkę w trakcie -
-// bez tego nie da się ustalić, na którym kroku faktycznie ginie na iOS.
-const logImportStep = async (step: string, detail?: Record<string, unknown>) => {
-  try {
-    const raw = await readStorageItem(IMPORT_DEBUG_LOG_KEY);
-    const existing: Array<{ t: string; step: string; detail?: Record<string, unknown> }> =
-      raw ? JSON.parse(raw) : [];
-    existing.push({ t: new Date().toISOString(), step, detail });
-    await writeStorageItem(IMPORT_DEBUG_LOG_KEY, JSON.stringify(existing.slice(-60)));
-  } catch {
-    // best-effort only
-  }
 };
 
 const readLocalEvents = async (): Promise<TrashEvent[]> => {
@@ -592,6 +575,19 @@ const detectWasteType = (
   }
 
   return null;
+};
+
+// AI potrafi zwrócić ten sam typ pod różnymi nazwami (np. "Odpady zmieszane"
+// zamiast "Zmieszane"), co psuje dopasowywanie do WASTE_TYPES i grupowanie
+// wg typu. Sprowadzamy do kanonicznej etykiety po słowach kluczowych;
+// jeśli nic nie pasuje, zostawiamy oryginalny tekst od AI bez zmian.
+const canonicalizeWasteType = (rawType: string, language: "pl" | "en"): string => {
+  const trimmed = rawType.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  return detectWasteType(trimmed, language) ?? trimmed;
 };
 
 const parseImportText = (
@@ -1154,7 +1150,7 @@ export default function App() {
           "";
 
         const date = String(rawDate).trim();
-        const wasteType = String(rawType).trim();
+        const wasteType = canonicalizeWasteType(String(rawType), language);
 
         if (!date || !wasteType) {
           return null;
@@ -1180,7 +1176,6 @@ export default function App() {
     setIsImporting(true);
     setImportProgress(null);
     setImportRawText("");
-    await logImportStep("start", { platform: Platform.OS });
 
     try {
       let fileUri = "";
@@ -1208,27 +1203,50 @@ export default function App() {
             ? (file as { size?: number }).size ?? null
             : null;
       } else {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        await logImportStep("permission-result", { status: permission.status });
+        const source = await new Promise<"camera" | "gallery" | null>((resolve) => {
+          Alert.alert(
+            t('importSourceTitle'),
+            t('importSourceMessage'),
+            [
+              { text: t('importSourceCamera'), onPress: () => resolve("camera") },
+              { text: t('importSourceGallery'), onPress: () => resolve("gallery") },
+              { text: t('cancel'), style: "cancel", onPress: () => resolve(null) },
+            ],
+            { cancelable: true, onDismiss: () => resolve(null) },
+          );
+        });
+
+        if (!source) {
+          return;
+        }
+
+        // Natywny upload (patrz importViaEndpoint) czyta plik prosto z dysku,
+        // więc nie ma już powodu obniżać jakości zdjęcia - a wyższa jakość
+        // pomaga AI poprawnie odczytać drobne daty/kolory na zdjęciu kalendarza.
+        const pickerOptions = {
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.9,
+        } as const;
+
+        const permission =
+          source === "camera"
+            ? await ImagePicker.requestCameraPermissionsAsync()
+            : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
         if (permission.status !== "granted") {
-          const message = t('importNoGalleryPermission');
+          const message =
+            source === "camera"
+              ? t('importNoCameraPermission')
+              : t('importNoGalleryPermission');
           setImportError(message);
           notify(t('error'), message);
           return;
         }
 
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          // Pełna jakość (1) na nowszych iPhone'ach daje zdjęcia rzędu 8-15 MB,
-          // co po zakodowaniu do base64 i wysłaniu jako JSON potrafi wisieć
-          // w nieskończoność albo trafić w limit czasu funkcji w chmurze.
-          quality: 0.5,
-        });
-
-        await logImportStep("picker-result", {
-          canceled: result.canceled,
-          assetCount: result.assets?.length ?? 0,
-        });
+        const result =
+          source === "camera"
+            ? await ImagePicker.launchCameraAsync(pickerOptions)
+            : await ImagePicker.launchImageLibraryAsync(pickerOptions);
 
         if (result.canceled || !result.assets?.length) {
           return;
@@ -1238,7 +1256,6 @@ export default function App() {
         fileUri = file.uri;
         fileName = file.fileName ?? `import_${Date.now()}.jpg`;
         mimeType = file.mimeType ?? mimeType;
-        await logImportStep("picker-file", { fileUri, fileName, mimeType });
       }
 
       let fileSize = pickedSize ?? 0;
@@ -1250,7 +1267,6 @@ export default function App() {
             ? (fileInfo as FileSystem.FileInfo & { size?: number }).size ?? 0
             : 0;
         fileSize = pickedSize ?? infoSize;
-        await logImportStep("file-info", { exists: fileInfo.exists, fileSize });
       }
 
       if (fileSize > MAX_IMPORT_FILE_SIZE_BYTES) {
@@ -1314,9 +1330,6 @@ export default function App() {
           // + jawne cancelAsync() na timeout - inaczej porzucone przez nas
           // (ale wciąż działające natywnie) zadanie uploadu właśnie zawieszało
           // całą aplikację, tak jak zgłoszono po poprzedniej poprawce.
-          await logImportStep("upload-task-create", { fileUri, mimeType, fileName });
-
-          let lastLoggedBucket = -1;
           const uploadTask = FileSystem.createUploadTask(
             IMPORT_ENDPOINT,
             fileUri,
@@ -1332,16 +1345,6 @@ export default function App() {
               if (data.totalBytesExpectedToSend > 0) {
                 const fraction = data.totalBytesSent / data.totalBytesExpectedToSend;
                 setImportProgress(0.1 + fraction * 0.75);
-
-                const bucket = Math.floor(fraction * 5);
-                if (bucket !== lastLoggedBucket) {
-                  lastLoggedBucket = bucket;
-                  logImportStep("upload-progress", {
-                    percent: Math.round(fraction * 100),
-                    bytesSent: data.totalBytesSent,
-                    bytesExpected: data.totalBytesExpectedToSend,
-                  });
-                }
               }
             },
           );
@@ -1354,7 +1357,6 @@ export default function App() {
           let timeoutId: ReturnType<typeof setTimeout>;
           const timeoutPromise = new Promise<never>((_, reject) => {
             timeoutId = setTimeout(() => {
-              logImportStep("upload-client-timeout");
               uploadTask.cancelAsync().catch(() => {});
               reject(new Error(t('importTimeout')));
             }, 45000);
@@ -1366,7 +1368,6 @@ export default function App() {
               uploadTask.uploadAsync(),
               timeoutPromise,
             ]);
-            await logImportStep("upload-settled", { status: uploadResult?.status });
           } finally {
             clearTimeout(timeoutId!);
           }
@@ -1399,9 +1400,7 @@ export default function App() {
         return normalizeImportItems(payload);
       };
 
-      await logImportStep("endpoint-call-start", { fileSize });
       const items = await importViaEndpoint();
-      await logImportStep("endpoint-call-done", { itemCount: items.length });
 
       if (!items.length) {
         const message = t('importNoItems');
@@ -1438,29 +1437,11 @@ export default function App() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : t('importFileError');
-      await logImportStep("catch", { message });
       setImportError(message);
       notify(t('error'), message);
     } finally {
-      await logImportStep("finally");
       setImportProgress(null);
       setIsImporting(false);
-    }
-  };
-
-  const onShareImportDebugLog = async () => {
-    try {
-      const raw = await readStorageItem(IMPORT_DEBUG_LOG_KEY);
-      if (!raw) {
-        notify(t('ok'), "Brak zapisanego logu importu.");
-        return;
-      }
-      await Share.share({ message: raw });
-    } catch (error) {
-      notify(
-        t('error'),
-        error instanceof Error ? error.message : "Nie udało się udostępnić logu.",
-      );
     }
   };
 
@@ -4156,16 +4137,6 @@ export default function App() {
               ) : null}
               {importError ? (
                 <Text style={styles.modalError}>{importError}</Text>
-              ) : null}
-              {Platform.OS !== "web" ? (
-                <TouchableOpacity
-                  onPress={onShareImportDebugLog}
-                  style={{ marginTop: 8, alignSelf: "flex-start" }}
-                >
-                  <Text style={[styles.tooltipText, { color: theme.textMuted, textDecorationLine: "underline" }]}>
-                    Wyślij log debugowania importu
-                  </Text>
-                </TouchableOpacity>
               ) : null}
             </View>
             <View
