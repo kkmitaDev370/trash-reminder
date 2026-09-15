@@ -52,6 +52,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import { translations, WASTE_TYPES, localeData } from './translations';
 import { Calendar, LocaleConfig } from "react-native-calendars";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
 // apply calendar locale data from translations file
 LocaleConfig.locales['pl'] = localeData.pl;
@@ -649,8 +650,12 @@ const dataUrlToBase64 = (dataUrl: string) => {
   return dataUrl.slice(commaIndex + 1);
 };
 
-export default function App() {
-  const topContentInset = Math.max(16, (Constants.statusBarHeight || 0) + 10);
+function AppContent() {
+  const insets = useSafeAreaInsets();
+  const topContentInset = Math.max(16, insets.top + 10);
+  // Android edge-to-edge rysuje treść pod paskiem nawigacji/gestów -
+  // bez tego dolne elementy (przyciski, ostatnia karta) chowałyby się pod nim.
+  const bottomContentInset = Math.max(16, insets.bottom + 10);
 
     // Pokazuj wersję tylko dla buildów deweloperskich
     const isDevBuild =
@@ -3383,7 +3388,7 @@ export default function App() {
       <ScrollView
         contentContainerStyle={[
           styles.containerContent,
-          { paddingTop: topContentInset },
+          { paddingTop: topContentInset, paddingBottom: bottomContentInset },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -4433,6 +4438,14 @@ export default function App() {
         </View>
       </Modal>
     </View>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
   );
 }
 

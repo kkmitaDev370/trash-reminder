@@ -38,12 +38,12 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": false,
+      "edgeToEdgeEnabled": true,
       "scheme": [
         "com.googleusercontent.apps.1011735082727-ievv74mvnh2b8lvt1d0a7jajq7q8r9e8"
       ],
       "package": "com.anonymous.trashreminder",
-      "versionCode": 62,
+      "versionCode": 63,
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]
