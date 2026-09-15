@@ -26,7 +26,7 @@
         "resizeMode": "contain",
         "backgroundColor": "#0b1220"
       },
-      "buildNumber": "52"
+      "buildNumber": "53"
     },
     "android": {
       "splash": {
@@ -43,7 +43,7 @@
         "com.googleusercontent.apps.1011735082727-ievv74mvnh2b8lvt1d0a7jajq7q8r9e8"
       ],
       "package": "com.anonymous.trashreminder",
-      "versionCode": 63,
+      "versionCode": 64,
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]
