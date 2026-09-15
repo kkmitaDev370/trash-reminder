@@ -1383,6 +1383,12 @@ export default function App() {
       setImportItems(items);
       setImportFileName(fileName);
       setShowImportRaw(false);
+      // Przycisk importu żyje wewnątrz bocznego menu (osobny <Modal>).
+      // Prezentowanie drugiego natywnego modala, zanim pierwszy się zamknie,
+      // potrafi zablokować UIKit na iOS (Android na to pozwala, więc tam
+      // wyglądało to na "działa") - stąd zawieszenie całej aplikacji zaraz
+      // po udanym imporcie. Trzeba zamknąć menu, zanim otworzymy podgląd.
+      setShowMenuModal(false);
       setShowImportModal(true);
 
       if (db && userUid) {
@@ -4152,6 +4158,7 @@ export default function App() {
                   style={[styles.menuDangerButton, { backgroundColor: theme.dangerBg, borderColor: theme.dangerText }]}
                   onPress={() => {
                     setHasAcknowledgedClearAll(false);
+                    setShowMenuModal(false);
                     setShowClearAllModal(true);
                   }}
                 >
@@ -4165,6 +4172,7 @@ export default function App() {
               style={[styles.menuSaveButton, { backgroundColor: theme.buttonBg }]}
               onPress={() => {
                 setFeedbackError("");
+                setShowMenuModal(false);
                 setShowFeedbackModal(true);
               }}
             >
