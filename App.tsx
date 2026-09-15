@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Appearance,
   SectionList,
   Modal,
   Platform,
@@ -188,6 +189,14 @@ const lightTheme = {
 
 
 const MIXED_WASTE_DAY_COLOR = "#7c3aed";
+// Godziny przypomnienia do wyboru z listy (co 30 minut, 06:00-23:30) -
+// nikt nie lubi ręcznie wpisywać godziny.
+const REMINDER_TIME_OPTIONS = Array.from({ length: 36 }, (_, index) => {
+  const totalMinutes = 6 * 60 + index * 30;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${pad2(hours)}:${pad2(minutes)}`;
+});
 const CALENDAR_DAY_SIZE = 32;
 const SESSION_CREDENTIALS_KEY = "trash_reminder_session_credentials_v1";
 const SESSION_TOKEN_KEY = "trash_reminder_session_token_v1";
@@ -369,6 +378,16 @@ const getWasteTypeColor = (wasteType: string) => {
     return "#ef4444";
 
   return "#6366f1";
+};
+
+// Musi się zgadzać z literałami dodanymi w WASTE_TYPES (translations.ts).
+// Wybranie tej opcji dodaje DWA osobne wydarzenia (Zmieszane i Bio) na ten
+// sam dzień, zamiast zapisywać jeden sztuczny typ "Zmieszane + Bio" -
+// dzięki temu kalendarz i listy pokazują je poprawnie (dzień z dwoma
+// różnymi typami dostaje już obsługiwany kolor "mieszany").
+const MIXED_BIO_COMBO_LABEL: Record<"pl" | "en", string> = {
+  pl: "Zmieszane + Bio",
+  en: "Mixed + Bio",
 };
 
 const getContrastTextColor = (hexColor: string) => {
@@ -655,17 +674,31 @@ export default function App() {
 
   // language selector (default Polish)
   const [language, setLanguage] = useState<'pl' | 'en'>('pl');
-  const [themeName, setThemeName] = useState<"dark" | "light">("dark");
+  const [themeName, setThemeName] = useState<"dark" | "light" | "system">("dark");
   const [hasLoadedTheme, setHasLoadedTheme] = useState(false);
   const [todayKey, setTodayKey] = useState(getTodayKey());
   const [showHouseholdHelp, setShowHouseholdHelp] = useState(false);
   const [showImportHelp, setShowImportHelp] = useState(false);
+  const [systemColorScheme, setSystemColorScheme] = useState(
+    () => Appearance.getColorScheme() ?? "light",
+  );
+
+  useEffect(() => {
+    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+      setSystemColorScheme(colorScheme ?? "light");
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  const effectiveThemeName =
+    themeName === "system" ? (systemColorScheme === "dark" ? "dark" : "light") : themeName;
 
   const theme = useMemo(
-    () => (themeName === "dark" ? darkTheme : lightTheme),
-    [themeName],
+    () => (effectiveThemeName === "dark" ? darkTheme : lightTheme),
+    [effectiveThemeName],
   );
-  const isLight = themeName === "light";
+  const isLight = effectiveThemeName === "light";
 
   useEffect(() => {
     let isActive = true;
@@ -675,12 +708,12 @@ export default function App() {
           const saved = typeof window !== "undefined"
             ? window.localStorage.getItem(THEME_PREFERENCE_KEY)
             : null;
-          if (isActive && (saved === "dark" || saved === "light")) {
+          if (isActive && (saved === "dark" || saved === "light" || saved === "system")) {
             setThemeName(saved);
           }
         } else {
           const saved = await AsyncStorage.getItem(THEME_PREFERENCE_KEY);
-          if (isActive && (saved === "dark" || saved === "light")) {
+          if (isActive && (saved === "dark" || saved === "light" || saved === "system")) {
             setThemeName(saved);
           }
         }
@@ -722,10 +755,6 @@ export default function App() {
 
     saveThemePreference();
   }, [hasLoadedTheme, themeName]);
-
-  const toggleTheme = () => {
-    setThemeName((previous) => (previous === "dark" ? "light" : "dark"));
-  };
 
   // translation helper that reads from dictionary above
   const t = (key: string) => {
@@ -780,6 +809,7 @@ export default function App() {
     LocaleConfig.defaultLocale = language;
   }, [language]);
   const [isWasteTypeDropdownOpen, setIsWasteTypeDropdownOpen] = useState(false);
+  const [isReminderTimeDropdownOpen, setIsReminderTimeDropdownOpen] = useState(false);
   const [showWasteModal, setShowWasteModal] = useState(false);
   const [modalError, setModalError] = useState("");
   const [isSavingEvent, setIsSavingEvent] = useState(false);
@@ -2862,48 +2892,10 @@ export default function App() {
     }
   };
 
-  const onAddEvent = async () => {
-    const normalizedDate = eventDate.trim();
-    const normalizedType =
-      selectedWasteType === OTHER_WASTE_LABEL
-        ? customWasteType.trim()
-        : selectedWasteType.trim();
-
-    if (!normalizedDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      const message = t('dateFormatError');
-      setModalError(message);
-      notify(t('error'), message);
-      return false;
-    }
-
-    if (isDateInPast(normalizedDate, getTodayKey())) {
-      const message = t('pastDateError');
-      setModalError(message);
-      notify(t('error'), message);
-      return false;
-    }
-
-    if (!normalizedType) {
-      const message = t('wasteTypeError');
-      setModalError(message);
-      notify(t('error'), message);
-      return false;
-    }
-
-    if (isAuthenticated && !currentHouseholdId) {
-      const message = t('noHouseholdError');
-      setModalError(message);
-      notify(t('error'), message);
-      return false;
-    }
-
-    if (isAuthenticated && !userUid) {
-      const message = t('noUserError');
-      setModalError(message);
-      notify(t('error'), message);
-      return false;
-    }
-
+  const addSingleWasteEvent = async (
+    normalizedDate: string,
+    normalizedType: string,
+  ): Promise<boolean> => {
     try {
       if (isAuthenticated && !db) {
         const message = t('firebaseNotConfigured');
@@ -2978,11 +2970,6 @@ export default function App() {
         });
       }
 
-      setEventDate("");
-      setSelectedWasteType(WASTE_TYPES[language][0]);
-      setCustomWasteType("");
-      setIsWasteTypeDropdownOpen(false);
-      setModalError("");
       return true;
     } catch (error) {
       let message =
@@ -3000,6 +2987,73 @@ export default function App() {
       notify(t('error'), message);
       return false;
     }
+  };
+
+  const onAddEvent = async () => {
+    const normalizedDate = eventDate.trim();
+
+    if (!normalizedDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const message = t('dateFormatError');
+      setModalError(message);
+      notify(t('error'), message);
+      return false;
+    }
+
+    if (isDateInPast(normalizedDate, getTodayKey())) {
+      const message = t('pastDateError');
+      setModalError(message);
+      notify(t('error'), message);
+      return false;
+    }
+
+    // Opcja "Zmieszane + Bio" to wygoda w UI - zapisujemy jako dwa osobne
+    // wydarzenia, żeby kolory/listy działały tak samo jak przy dwóch
+    // ręcznie dodanych typach tego samego dnia.
+    const isMixedBioCombo =
+      selectedWasteType === MIXED_BIO_COMBO_LABEL[language];
+    const typesToAdd = isMixedBioCombo
+      ? [WASTE_TYPES[language][0], "Bio"]
+      : [
+          (selectedWasteType === OTHER_WASTE_LABEL
+            ? customWasteType
+            : selectedWasteType
+          ).trim(),
+        ];
+
+    if (typesToAdd.some((type) => !type)) {
+      const message = t('wasteTypeError');
+      setModalError(message);
+      notify(t('error'), message);
+      return false;
+    }
+
+    if (isAuthenticated && !currentHouseholdId) {
+      const message = t('noHouseholdError');
+      setModalError(message);
+      notify(t('error'), message);
+      return false;
+    }
+
+    if (isAuthenticated && !userUid) {
+      const message = t('noUserError');
+      setModalError(message);
+      notify(t('error'), message);
+      return false;
+    }
+
+    for (const type of typesToAdd) {
+      const saved = await addSingleWasteEvent(normalizedDate, type);
+      if (!saved) {
+        return false;
+      }
+    }
+
+    setEventDate("");
+    setSelectedWasteType(WASTE_TYPES[language][0]);
+    setCustomWasteType("");
+    setIsWasteTypeDropdownOpen(false);
+    setModalError("");
+    return true;
   };
 
   const onCalendarDayPress = (day: { dateString: string }) => {
@@ -3376,7 +3430,7 @@ export default function App() {
             {t('calendarSection')}
           </Text>
           <Calendar
-            key={`calendar-${themeName}`}
+            key={`calendar-${effectiveThemeName}`}
             onDayPress={onCalendarDayPress}
             markedDates={markedDates}
             markingType="custom"
@@ -3912,17 +3966,41 @@ export default function App() {
                 <Text style={[styles.menuSettingLabel, { color: theme.textPrimary }]}> 
                   {t('themeLabel')}
                 </Text>
-                <TouchableOpacity
-                  style={[
-                    styles.themeToggle,
-                    { backgroundColor: theme.buttonBg, borderColor: theme.border },
-                  ]}
-                  onPress={toggleTheme}
-                >
-                  <Text style={[styles.themeToggleIcon, { color: theme.textPrimary }]}> 
-                    {themeName === "dark" ? "☀" : "☾"}
-                  </Text>
-                </TouchableOpacity>
+                <View style={styles.langSwitch}>
+                  <TouchableOpacity onPress={() => setThemeName('light')}>
+                    <Text
+                      style={[
+                        styles.langOption,
+                        { color: theme.textMuted },
+                        themeName === 'light' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                      ]}
+                    >
+                      ☀
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setThemeName('dark')}>
+                    <Text
+                      style={[
+                        styles.langOption,
+                        { color: theme.textMuted },
+                        themeName === 'dark' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                      ]}
+                    >
+                      ☾
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setThemeName('system')}>
+                    <Text
+                      style={[
+                        styles.langOption,
+                        { color: theme.textMuted },
+                        themeName === 'system' && [styles.langOptionSelected, { color: theme.textPrimary }],
+                      ]}
+                    >
+                      ⚙
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <View style={styles.menuSettingsRow}>
                 <Text style={[styles.menuSettingLabel, { color: theme.textPrimary }]}> 
@@ -4102,16 +4180,54 @@ export default function App() {
               <Text style={[styles.menuSectionHint, { color: theme.textMuted }]}> 
                 {t('reminderTimeHint')}
               </Text>
-              <TextInput
-                value={notificationTimeInput}
-                onChangeText={setNotificationTimeInput}
-                placeholder={t('timePlaceholder')}
-                placeholderTextColor={theme.textMuted}
+              <TouchableOpacity
                 style={[
-                  styles.menuInput,
-                  { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
+                  styles.dropdownTrigger,
+                  { borderColor: theme.border, backgroundColor: theme.inputBg },
                 ]}
-              />
+                onPress={() => setIsReminderTimeDropdownOpen((previous) => !previous)}
+              >
+                <Text style={[styles.dropdownTriggerText, { color: theme.textPrimary }]}>
+                  {notificationTimeInput}
+                </Text>
+                <Text style={[styles.dropdownChevron, { color: theme.textMuted }]}>
+                  {isReminderTimeDropdownOpen ? "▴" : "▾"}
+                </Text>
+              </TouchableOpacity>
+
+              {isReminderTimeDropdownOpen ? (
+                <View
+                  style={[
+                    styles.dropdownList,
+                    styles.dropdownListScrollable,
+                    { borderColor: theme.border, backgroundColor: theme.pageBg },
+                  ]}
+                >
+                  <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                    {REMINDER_TIME_OPTIONS.map((time) => (
+                      <TouchableOpacity
+                        key={time}
+                        style={[styles.dropdownItem, { borderBottomColor: theme.border }]}
+                        onPress={() => {
+                          setNotificationTimeInput(time);
+                          setIsReminderTimeDropdownOpen(false);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.dropdownItemText,
+                            { color: theme.textSecondary },
+                            notificationTimeInput === time &&
+                              [styles.dropdownItemTextSelected, { color: theme.accent }],
+                          ]}
+                        >
+                          {time}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
               <View style={styles.menuActionSpacing}>
                 <TouchableOpacity
                   style={[
@@ -4573,6 +4689,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: "hidden",
     backgroundColor: "#0b1220",
+  },
+  dropdownListScrollable: {
+    maxHeight: 220,
   },
   dropdownItem: {
     paddingHorizontal: 12,
