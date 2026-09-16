@@ -204,6 +204,11 @@ const THEME_PREFERENCE_KEY = "trash_reminder_theme_v1";
 const LOCAL_EVENTS_KEY = "trash_reminder_local_events_v1";
 const LOCAL_NOTIFICATION_TIME_KEY = "trash_reminder_local_notification_time_v1";
 const MAX_IMPORT_FILE_SIZE_BYTES = 8 * 1024 * 1024;
+// Kanały powiadomień na Androidzie są niemodyfikowalne po utworzeniu -
+// zmiana importance/sound w kodzie nie naprawi kanału już istniejącego
+// na telefonie użytkownika. Nowe ID kanału gwarantuje, że każdy (stary
+// i nowy użytkownik) dostanie świeży kanał z poprawnym dźwiękiem.
+const NOTIFICATION_CHANNEL_ID = "trash-reminders-v2";
 const FIREBASE_PROJECT_ID =
   (process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "").trim();
 const DEFAULT_FUNCTION_REGION = "us-central1";
@@ -2299,9 +2304,10 @@ function AppContent() {
     }
 
     if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("trash-reminders", {
-        name: "Trash reminders",
+      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
+        name: "Przypomnienia o śmieciach",
         importance: Notifications.AndroidImportance.HIGH,
+        sound: "default",
       });
     }
 
@@ -2322,13 +2328,14 @@ function AppContent() {
       content: {
         title,
         body,
+        sound: true,
       },
       trigger:
         Platform.OS === "android"
           ? {
               type: Notifications.SchedulableTriggerInputTypes.DATE,
               date: triggerDate,
-              channelId: "trash-reminders",
+              channelId: NOTIFICATION_CHANNEL_ID,
             }
           : {
               type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
@@ -3242,9 +3249,10 @@ function AppContent() {
       }
 
       if (Platform.OS === "android") {
-        await Notifications.setNotificationChannelAsync("trash-reminders", {
-          name: "Trash reminders",
-          importance: Notifications.AndroidImportance.DEFAULT,
+        await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
+          name: "Przypomnienia o śmieciach",
+          importance: Notifications.AndroidImportance.HIGH,
+          sound: "default",
         });
       }
 
@@ -3252,11 +3260,12 @@ function AppContent() {
         content: {
           title: t('testNotifTitle'),
           body: t('testNotifBody'),
+          sound: true,
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
           seconds: 5,
-          channelId: Platform.OS === "android" ? "trash-reminders" : undefined,
+          channelId: Platform.OS === "android" ? NOTIFICATION_CHANNEL_ID : undefined,
         },
       });
 
